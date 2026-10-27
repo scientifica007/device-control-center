@@ -10,29 +10,40 @@ from pathlib import Path
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
-from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dcc_core as core  # noqa: E402
 
 
 CSS = b"""
-.dcc-heading { font-size: 19px; font-weight: 700; }
+.dcc-window { font-family: "Noto Sans Arabic", "DejaVu Sans", sans-serif; font-size: 13px; }
+.dcc-heading { font-size: 21px; font-weight: bold; }
 .dcc-subheading { font-size: 15px; font-weight: bold; }
-.dcc-muted { opacity: 0.72; }
-.dcc-card { border: 1px solid alpha(@theme_fg_color, .16); border-radius: 12px; padding: 13px; margin-bottom: 5px; }
-.dcc-padded { padding: 8px; }
-.dcc-pill { padding: 4px 7px; border-radius: 7px; background: alpha(@theme_selected_bg_color, .12); }
-.dcc-section { margin-top: 11px; margin-bottom: 5px; }
-.dcc-status { padding: 7px; }
+.dcc-muted { opacity: 0.75; font-size: 12px; }
+.dcc-card { border: 1px solid alpha(@theme_fg_color, .14); border-radius: 10px; background: alpha(@theme_base_color, .6); }
+.dcc-battery { font-size: 28px; font-weight: bold; }
+.dcc-low { color: @error_color; }
+.dcc-section { margin-top: 8px; margin-bottom: 2px; }
+.dcc-status { padding: 4px 10px; font-size: 11px; }
+.dcc-window progressbar trough { min-height: 9px; border-radius: 5px; }
+.dcc-window progressbar progress { min-height: 9px; border-radius: 5px; }
 """
+
+
+def isolate(text):
+    """Keep mixed Arabic/Latin device names and identifiers in logical order."""
+    return "\u2068" + str(text) + "\u2069"
 
 
 def label(text: str, style: str = "", wrap: bool = True) -> Gtk.Label:
     result = Gtk.Label(label=text)
-    result.set_xalign(1.0)
+    result.set_direction(Gtk.TextDirection.RTL)
+    result.set_xalign(0.0)
     result.set_yalign(0.5)
     result.set_line_wrap(wrap)
+    result.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+    result.set_max_width_chars(42)
     result.set_selectable(False)
     if style:
         result.get_style_context().add_class(style)
@@ -54,8 +65,9 @@ def clear_box(box: Gtk.Box) -> None:
 class DccWindow(Gtk.Window):
     def __init__(self):
         super().__init__(title="مركز التحكم بالأجهزة")
-        self.set_default_size(840, 630)
-        self.set_size_request(520, 470)
+        self.set_default_size(780, 620)
+        self.get_style_context().add_class("dcc-window")
+        self.set_size_request(440, 400)
         self.set_position(Gtk.WindowPosition.CENTER)
         self.set_icon_name("bluetooth")
         self.connect("destroy", self._destroyed)
@@ -69,6 +81,7 @@ class DccWindow(Gtk.Window):
 
         Gtk.Widget.set_default_direction(Gtk.TextDirection.RTL)
         provider = Gtk.CssProvider()
+        self._css_provider = provider
         provider.load_from_data(CSS)
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
@@ -79,16 +92,17 @@ class DccWindow(Gtk.Window):
         header.props.title = "مركز التحكم بالأجهزة"
         header.props.subtitle = "Bluetooth • الصوت • Wi-Fi"
         self.set_titlebar(header)
-        header.pack_start(button("تحديث", lambda _: self.refresh()))
-        header.pack_end(button("بحث عن أجهزة", lambda _: self.find_devices()))
+        self.refresh_button = button("تحديث", lambda _: self.refresh())
+        header.pack_start(self.refresh_button)
+        header.pack_end(button("بحث", lambda _: self.find_devices()))
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.add(outer)
         self.scrolled = Gtk.ScrolledWindow()
         self.scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         outer.pack_start(self.scrolled, True, True, 0)
-        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        body.set_border_width(17)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        body.set_border_width(12)
         self.scrolled.add(body)
 
         body.pack_start(label("الأجهزة المتصلة بالحاسوب", "dcc-heading"), False, False, 0)
@@ -107,8 +121,10 @@ class DccWindow(Gtk.Window):
         audio_frame.get_style_context().add_class("dcc-card")
         body.pack_start(audio_frame, False, False, 0)
         audio_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=11)
-        audio_box.set_border_width(8)
+        audio_box.set_border_width(12)
         audio_frame.add(audio_box)
+        self.audio_info = label("", "dcc-muted")
+        audio_box.pack_start(self.audio_info, False, False, 0)
 
         self.out_combo = self._device_picker(audio_box, "جهاز إخراج الصوت", "sinks")
         self.out_scale, self.out_value, self.out_mute = self._volume_row(audio_box, "مستوى صوت الإخراج", "out")
@@ -130,18 +146,26 @@ class DccWindow(Gtk.Window):
         self.wifi_info.set_margin_end(8)
         wifi_frame.add(self.wifi_info)
 
-        bottom = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        body.pack_start(bottom, False, False, 0)
-        bottom.pack_start(button("تصدير تقرير JSON", lambda _: self.export_report()), False, False, 0)
-        bottom.pack_start(label("التقرير يُحفظ محليًا فقط. لا يوجد إرسال بيانات إلى خوادم.", "dcc-muted"), True, True, 0)
-        self.status = label("جاري بدء الفحص…", "dcc-status")
-        outer.pack_end(self.status, False, False, 0)
+        # Persistent actions never depend on the height of the scroll content.
+        footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        footer.pack_start(Gtk.Separator(), False, False, 0)
+        self.export_button = button("تصدير تقرير JSON", lambda _: self.export_report())
+        self.export_button.set_margin_start(12)
+        self.export_button.set_margin_end(12)
+        self.export_button.set_margin_top(6)
+        self.export_button.set_tooltip_text("حفظ محلي فقط؛ قد يتضمن التقرير عناوين الأجهزة وأسماء الشبكات")
+        footer.pack_start(self.export_button, False, False, 0)
+        self.status = label("جارٍ بدء الفحص…", "dcc-status", wrap=False)
+        self.status.set_ellipsize(Pango.EllipsizeMode.END)
+        footer.pack_start(self.status, False, False, 0)
+        outer.pack_end(footer, False, False, 0)
         outer.show_all()
         GLib.idle_add(self.refresh)
         self._refresh_timer = GLib.timeout_add_seconds(12, self._auto_refresh)
 
     def _destroyed(self, *_):
         self._closed = True
+        Gtk.StyleContext.remove_provider_for_screen(Gdk.Screen.get_default(), self._css_provider)
         GLib.source_remove(self._refresh_timer)
         for kind, timer in self._volume_timer.items():
             if timer is not None:
@@ -155,16 +179,21 @@ class DccWindow(Gtk.Window):
         container.pack_start(heading, False, False, 0)
         combo = Gtk.ComboBoxText()
         combo.set_hexpand(True)
+        for renderer in combo.get_cells():
+            renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
+            renderer.set_property("max-width-chars", 32)
         container.pack_start(combo, False, False, 0)
         combo.connect("changed", lambda widget: self.select_audio(widget, kind))
         return combo
 
     def _volume_row(self, container: Gtk.Box, title: str, kind: str):
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        container.pack_start(label(title, "dcc-muted"), False, False, 0)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         container.pack_start(row, False, False, 0)
-        row.pack_start(label(title), False, False, 0)
+
         scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
         scale.set_hexpand(True)
+        scale.set_size_request(80, -1)
         scale.set_draw_value(False)
         scale.connect("value-changed", lambda w: self.schedule_volume(w, kind))
         row.pack_start(scale, True, True, 0)
@@ -201,11 +230,20 @@ class DccWindow(Gtk.Window):
         if error:
             self.status.set_text("تعذر تحديث البيانات: " + error)
         else:
+            if self.data:
+                # Retain last successful devices only on explicit query failures.
+                if result.get("bluetooth_error"):
+                    result["bluetooth"] = [dict(d, stale=True) for d in self.data["bluetooth"]]
+                else:
+                    previous = {d["mac"]: d for d in self.data["bluetooth"]}
+                    result["bluetooth"] = [dict(previous[d["mac"]], error=d["error"], stale=True)
+                                           if d.get("error") and d["mac"] in previous else d
+                                           for d in result["bluetooth"]]
             self.data = result
             self._render_devices(result)
             self._render_audio(result["audio"])
             self._render_wifi(result["wifi"])
-            self.status.set_text("آخر تحديث: " + GLib.DateTime.new_now_local().format("%H:%M:%S") + " — تحديث آلي كل 12 ثانية")
+            self.status.set_text("آخر فحص: " + GLib.DateTime.new_now_local().format("%H:%M:%S") + " — تحديث آلي كل 12 ثانية")
         return False
 
     def _render_devices(self, data):
@@ -220,26 +258,35 @@ class DccWindow(Gtk.Window):
             frame = Gtk.Frame()
             frame.get_style_context().add_class("dcc-card")
             content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-            content.set_border_width(7)
+            content.set_border_width(12)
             frame.add(content)
             status = "متصل" if dev.get("connected") else "غير متصل"
             if not dev.get("paired"):
                 status = "مكتشف وغير مقترن"
             if dev.get("blocked"):
                 status = "محظور"
-            content.pack_start(label(f"{dev.get('alias') or dev.get('name') or 'جهاز Bluetooth'} — {status}", "dcc-subheading"), False, False, 0)
-            content.pack_start(label(f"عنوان الجهاز: {dev['mac']}", "dcc-muted"), False, False, 0)
+            content.pack_start(label(f"{isolate(dev.get('alias') or dev.get('name') or 'جهاز Bluetooth')} — {status}", "dcc-subheading"), False, False, 0)
+            content.pack_start(label(f"عنوان الجهاز: {isolate(dev['mac'])}", "dcc-muted"), False, False, 0)
             battery = dev.get("battery")
             if battery is None:
                 content.pack_start(label("البطارية: لا يوفر النظام قراءة متاحة لهذا الجهاز"), False, False, 0)
             else:
-                content.pack_start(label(f"بطارية الجهاز: {battery}%"), False, False, 0)
+                content.pack_start(label(isolate(f"{battery}%"), "dcc-battery"), False, False, 0)
                 progress = Gtk.ProgressBar()
                 progress.set_fraction(max(0, min(100, battery)) / 100)
                 progress.set_show_text(False)
                 content.pack_start(progress, False, False, 0)
                 if battery <= 20:
-                    content.pack_start(label("تنبيه: مستوى البطارية منخفض"), False, False, 0)
+                    progress.get_style_context().add_class("dcc-low")
+                    content.pack_start(label("شحن منخفض", "dcc-low"), False, False, 0)
+            checked = dev.get("battery_checked_at")
+            source = dev.get("battery_source")
+            if checked and source:
+                moment = GLib.DateTime.new_from_iso8601(checked, None).to_local().format("%H:%M:%S")
+                content.pack_start(label(f"آخر قراءة ناجحة من {source}: {isolate(moment)}", "dcc-muted"), False, False, 0)
+                content.pack_start(label("آخر قيمة متاحة في النظام؛ وقت إبلاغ السماعة غير متاح.", "dcc-muted"), False, False, 0)
+            if dev.get("stale"):
+                content.pack_start(label("تعذرت القراءة الحالية؛ هذه آخر بيانات ناجحة.", "dcc-low"), False, False, 0)
             rssi = dev.get("rssi")
             content.pack_start(label("قوة الإشارة (RSSI): " + (f"{rssi} dBm" if rssi is not None else "غير متاحة حاليًا"), "dcc-muted"), False, False, 0)
             actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -250,6 +297,7 @@ class DccWindow(Gtk.Window):
                 btn = button("اتصال", lambda _, mac=dev["mac"]: self.action(lambda: core.bluetooth_action(mac, "connect"), "الاتصال بالجهاز"))
             else:
                 btn = button("محاولة إقران", lambda _, mac=dev["mac"]: self.action(lambda: core.bluetooth_action(mac, "pair"), "إقران الجهاز"))
+            btn.set_sensitive(not dev.get("stale", False))
             actions.pack_start(btn, False, False, 0)
             self.bt_box.pack_start(frame, False, False, 0)
         self.bt_box.show_all()
@@ -264,12 +312,13 @@ class DccWindow(Gtk.Window):
 
     def _render_audio(self, data):
         self._updating = True
+        self.audio_info.set_text("تعذرت قراءة الصوت: " + data["error"] if data.get("error") else "الأجهزة والمستويات الافتراضية في النظام")
         try:
             for kind, combo in (("sinks", self.out_combo), ("sources", self.in_combo)):
                 current = combo.get_active_id()
                 combo.remove_all()
                 for node in data.get(kind, []):
-                    combo.append(str(node["id"]), node["name"])
+                    combo.append(str(node["id"]), isolate(node["name"]))
                 default = next((str(x["id"]) for x in data.get(kind, []) if x["default"]), current)
                 if default:
                     combo.set_active_id(default)
@@ -291,14 +340,14 @@ class DccWindow(Gtk.Window):
 
     def _render_wifi(self, wifi):
         if wifi.get("connected"):
-            self.wifi_info.set_text(f"الشبكة: {wifi.get('ssid', '')}   |   قوة الإشارة: {wifi.get('signal', '—')}%   |   التردد: {wifi.get('freq', '—')}")
+            self.wifi_info.set_text(f"الشبكة: {isolate(wifi.get('ssid', ''))}   |   قوة الإشارة: {wifi.get('signal', '—')}%   |   التردد: {wifi.get('freq', '—')}")
         elif wifi.get("error"):
             self.wifi_info.set_text("بيانات Wi-Fi غير متاحة: " + wifi["error"])
         else:
             self.wifi_info.set_text("لا توجد شبكة Wi-Fi متصلة حاليًا، أو لم يتعرف NetworkManager عليها.")
 
     def schedule_volume(self, widget, kind):
-        if self._updating or self.data is None:
+        if self._closed or self._updating or self.data is None:
             return
         existing = self._volume_timer[kind]
         if existing is not None:
@@ -307,12 +356,17 @@ class DccWindow(Gtk.Window):
         self._volume_timer[kind] = GLib.timeout_add(420, self._commit_volume, kind, value)
 
     def _commit_volume(self, kind, value):
+        if self._closed:
+            self._volume_timer[kind] = None
+            return False
+        if self._action_running or self._busy:
+            return True
         self._volume_timer[kind] = None
         self.action(lambda: core.set_volume(kind, value), "تغيير مستوى الصوت", refresh=False)
         return False
 
     def select_audio(self, combo, kind):
-        if self._updating or self.data is None:
+        if self._closed or self._updating or self.data is None:
             return
         selected = combo.get_active_id()
         if not selected:
@@ -324,7 +378,7 @@ class DccWindow(Gtk.Window):
         self.action(lambda: core.set_default_audio(int(selected), kind, audio), "تغيير جهاز الصوت الافتراضي")
 
     def action(self, operation, description, refresh=True):
-        if self._action_running:
+        if self._closed or self._action_running:
             return
         self._action_running = True
         self.status.set_text("جارٍ تنفيذ: " + description + "…")

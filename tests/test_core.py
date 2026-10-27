@@ -110,6 +110,22 @@ class HardwareFailureTests(unittest.TestCase):
             devices, error = dc.get_bluetooth()
         self.assertIsNone(error)
         self.assertEqual(devices[0]['battery'], 53)
+        self.assertEqual(devices[0]['battery_source'], 'UPower')
+        self.assertIsNotNone(devices[0]['battery_checked_at'])
+
+    def test_repeated_reads_do_not_cache_battery(self):
+        with patch.object(dc, 'run', side_effect=[
+                'Device AA:BB:CC:DD:EE:FF Headset',
+                'Connected: yes\nBattery Percentage: 0x3c (60)',
+                'Device AA:BB:CC:DD:EE:FF Headset',
+                'Connected: yes\nBattery Percentage: 0x32 (50)']) as query:
+            first, _ = dc.get_bluetooth()
+            second, _ = dc.get_bluetooth()
+        self.assertEqual(query.call_count, 4)
+        self.assertEqual(first[0]['battery'], 60)
+        self.assertEqual(second[0]['battery'], 50)
+        self.assertEqual(second[0]['battery_source'], 'BlueZ')
+        self.assertIsNotNone(second[0]['battery_checked_at'])
 
     def test_controls_resolve_default_nodes(self):
         with patch.object(dc, 'run') as run:

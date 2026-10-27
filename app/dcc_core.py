@@ -5,6 +5,7 @@ No shell=True, network services, privilege escalation or telemetry.
 from __future__ import annotations
 
 import re
+import os
 import shutil
 import subprocess
 from datetime import datetime, timezone
@@ -25,7 +26,8 @@ def run(argv: list[str], timeout: int = 7) -> str:
         raise CommandError(f"الأداة غير متوفرة: {argv[0] if argv else '?'}")
     try:
         result = subprocess.run(argv, capture_output=True, text=True,
-                                errors="replace", timeout=timeout, check=False)
+                                errors="replace", timeout=timeout, check=False,
+                                env={**os.environ, "LC_ALL": "C"})
     except subprocess.TimeoutExpired as exc:
         raise CommandError(f"انتهت المهلة: {argv[0]}") from exc
     except OSError as exc:
@@ -136,12 +138,17 @@ def get_bluetooth() -> tuple[list[dict[str, Any]], str | None]:
         try:
             details = parse_bt_info(run(["bluetoothctl", "info", device["mac"]], timeout=6))
             device.update(details)
+            device["battery_source"] = "BlueZ" if details["battery"] is not None else None
         except CommandError as err:
             device["error"] = str(err)
         if device.get("battery") is None:
             if upower_batts is None:
                 upower_batts = _upower_batteries()
             device["battery"] = upower_batts.get(device["mac"])
+            if device["battery"] is not None:
+                device["battery_source"] = "UPower"
+        device["battery_checked_at"] = (datetime.now(timezone.utc).isoformat()
+                                         if device.get("battery") is not None else None)
     return devices[:20], None
 
 

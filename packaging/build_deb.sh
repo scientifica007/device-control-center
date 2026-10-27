@@ -8,7 +8,7 @@ trap 'rm -rf "$PKG_DIR"' EXIT
 mkdir -p "$PKG_DIR/DEBIAN" "$PKG_DIR/usr/bin" "$PKG_DIR/usr/lib/device-control-center" "$PKG_DIR/usr/share/applications" "$PKG_DIR/usr/share/icons/hicolor/scalable/apps" "$PKG_DIR/usr/share/doc/device-control-center"
 cat > "$PKG_DIR/DEBIAN/control" <<'CONTROL'
 Package: device-control-center
-Version: 0.1.2
+Version: 0.1.3
 Section: utils
 Priority: optional
 Architecture: all
@@ -32,5 +32,5 @@ install -m 0644 "$ROOT/README.md" "$PKG_DIR/usr/share/doc/device-control-center/
 install -m 0644 "$ROOT/LICENSE" "$PKG_DIR/usr/share/doc/device-control-center/copyright"
 find "$PKG_DIR" -type d -exec chmod 755 {} \;
 mkdir -p "$OUT"
-dpkg-deb --build --root-owner-group "$PKG_DIR" "$OUT/device-control-center_0.1.2_all.deb"
-echo "Artifact: $OUT/device-control-center_0.1.2_all.deb"
+dpkg-deb --build --root-owner-group "$PKG_DIR" "$OUT/device-control-center_0.1.3_all.deb"
+echo "Artifact: $OUT/device-control-center_0.1.3_all.deb"
