@@ -1,0 +1,26 @@
+name: Test and build Debian package
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ubuntu-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Python syntax
+        run: python3 -m compileall -q app tests
+      - name: Run tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Build .deb
+        run: bash packaging/build_deb.sh
+      - name: Inspect package
+        run: dpkg-deb --info dist/device-control-center_0.1.0_all.deb
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: device-control-center-deb
+          path: dist/device-control-center_0.1.0_all.deb

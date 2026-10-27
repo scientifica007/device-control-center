@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Device Control Center
+Name[ar]=مركز التحكم بالأجهزة
+Comment=Inspect and control Bluetooth and audio devices
+Comment[ar]=مراقبة بطارية بلوتوث والتحكم بأجهزة الصوت والشبكة
+Exec=device-control-center
+Icon=device-control-center
+Terminal=false
+Categories=Utility;Settings;
+StartupNotify=true
