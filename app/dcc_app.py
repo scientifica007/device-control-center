@@ -9,6 +9,7 @@ from pathlib import Path
 
 import gi
 gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
