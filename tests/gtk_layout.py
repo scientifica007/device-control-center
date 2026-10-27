@@ -21,8 +21,8 @@ def pump(seconds=0.2):
         time.sleep(0.01)
 
 
-def wait(predicate):
-    end = time.monotonic() + 35
+def wait(predicate, timeout=35):
+    end = time.monotonic() + timeout
     while not predicate():
         assert time.monotonic() < end, "GTK update timed out"
         pump(0.05)
@@ -49,8 +49,11 @@ def main():
                 pump(0.4)
                 assert w.get_size().width <= width, (width, w.get_size())
                 w.scrolled.emit("scroll-child", Gtk.ScrollType.END, False)
-                pump(0.4)
                 adj = w.scrolled.get_vadjustment()
+                # Wait for GTK's animated scroll, rather than assuming it has
+                # completed after a fixed delay on a busy desktop.
+                wait(lambda: abs(adj.get_value() - (adj.get_upper() - adj.get_page_size())) < 2,
+                     timeout=5)
                 assert abs(adj.get_value() - (adj.get_upper() - adj.get_page_size())) < 2
                 # Hit-test the button in window coordinates, then really activate it.
                 x, y = w.export_button.translate_coordinates(w, 0, 0)

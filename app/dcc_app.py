@@ -10,7 +10,14 @@ from pathlib import Path
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
+from gi.repository import GLib  # noqa: E402
+
+# Match the desktop basename on Wayland and WM_CLASS on X11. Set the
+# program name before importing GTK so Python's filename isn't used.
+APP_ID = "device-control-center"
+GLib.set_prgname(APP_ID)
 from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
+Gdk.set_program_class(APP_ID)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dcc_core as core  # noqa: E402
@@ -69,7 +76,7 @@ class DccWindow(Gtk.Window):
         self.get_style_context().add_class("dcc-window")
         self.set_size_request(440, 400)
         self.set_position(Gtk.WindowPosition.CENTER)
-        self.set_icon_name("bluetooth")
+        self.set_icon_name(APP_ID)
         self.connect("destroy", self._destroyed)
         self._closed = False
 

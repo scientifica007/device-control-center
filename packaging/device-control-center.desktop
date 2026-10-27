@@ -8,5 +8,6 @@ Comment[ar]=مراقبة بطارية بلوتوث والتحكم بأجهزة �
 Exec=device-control-center
 Icon=device-control-center
 Terminal=false
-Categories=Utility;Settings;
+Categories=Utility;
 StartupNotify=true
+StartupWMClass=device-control-center

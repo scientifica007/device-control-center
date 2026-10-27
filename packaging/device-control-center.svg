@@ -1,5 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#224e81"/><stop offset="1" stop-color="#526bd2"/></linearGradient></defs>
-  <rect x="5" y="5" width="118" height="118" rx="26" fill="url(#g)"/>
-  <path d="M64 20v88l28-25-56-45m0 51 56-50-28-20" fill="none" stroke="white" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <title>Device Control Center</title>
+  <!-- Original vector: connected devices and three control sliders. -->
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="#245c88"/>
+  <rect x="24" y="24" width="80" height="64" rx="10" fill="none" stroke="#ffffff" stroke-width="8"/>
+  <path d="M44 40v32m20-32v32m20-32v32M64 88v16m-16 0h32" fill="none" stroke="#ffffff" stroke-width="8" stroke-linecap="round"/>
+  <path d="M40 48h8m12 16h8m12-16h8" fill="none" stroke="#77e4cf" stroke-width="10" stroke-linecap="round"/>
 </svg>
