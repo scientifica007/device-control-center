@@ -1,5 +1,6 @@
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
@@ -81,6 +82,46 @@ class CoreTests(unittest.TestCase):
             dc.set_volume('out', 101)
         with self.assertRaises(ValueError):
             dc.set_default_audio(999, 'sources', dc.parse_wpctl(WP_NEW))
+
+class HardwareFailureTests(unittest.TestCase):
+    def test_disconnected_device_has_no_invented_battery(self):
+        with patch.object(dc, 'run', side_effect=[
+                'Device AA:BB:CC:DD:EE:FF Headset',
+                'Connected: no', '']):
+            devices, error = dc.get_bluetooth()
+        self.assertIsNone(error)
+        self.assertFalse(devices[0]['connected'])
+        self.assertIsNone(devices[0]['battery'])
+
+    def test_permission_denied_is_reported(self):
+        with patch.object(dc, 'run', side_effect=dc.CommandError('Permission denied')):
+            devices, error = dc.get_bluetooth()
+            audio = dc.get_audio()
+        self.assertEqual(devices, [])
+        self.assertEqual(error, 'Permission denied')
+        self.assertEqual(audio['error'], 'Permission denied')
+        self.assertIsNone(audio['in']['percent'])
+
+    def test_upower_fallback_uses_current_reading(self):
+        path = '/org/freedesktop/UPower/devices/headset_dev_AA_BB_CC_DD_EE_FF'
+        with patch.object(dc, 'run', side_effect=[
+                'Device AA:BB:CC:DD:EE:FF Headset',
+                'Connected: yes', path, ' percentage: 53%']):
+            devices, error = dc.get_bluetooth()
+        self.assertIsNone(error)
+        self.assertEqual(devices[0]['battery'], 53)
+
+    def test_controls_resolve_default_nodes(self):
+        with patch.object(dc, 'run') as run:
+            dc.set_volume('out', 39)
+            dc.set_volume('in', 12)
+            dc.toggle_mute('in')
+        self.assertEqual(run.call_args_list[0].args[0],
+                         ['wpctl', 'set-volume', '@DEFAULT_AUDIO_SINK@', '39%'])
+        self.assertEqual(run.call_args_list[1].args[0],
+                         ['wpctl', 'set-volume', '@DEFAULT_AUDIO_SOURCE@', '12%'])
+        self.assertEqual(run.call_args_list[2].args[0],
+                         ['wpctl', 'set-mute', '@DEFAULT_AUDIO_SOURCE@', 'toggle'])
 
 if __name__ == '__main__':
     unittest.main()

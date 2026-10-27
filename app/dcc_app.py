@@ -58,7 +58,8 @@ class DccWindow(Gtk.Window):
         self.set_size_request(520, 470)
         self.set_position(Gtk.WindowPosition.CENTER)
         self.set_icon_name("bluetooth")
-        self.connect("destroy", Gtk.main_quit)
+        self.connect("destroy", self._destroyed)
+        self._closed = False
 
         self.data = None
         self._busy = False
@@ -137,7 +138,17 @@ class DccWindow(Gtk.Window):
         outer.pack_end(self.status, False, False, 0)
         outer.show_all()
         GLib.idle_add(self.refresh)
-        GLib.timeout_add_seconds(12, self._auto_refresh)
+        self._refresh_timer = GLib.timeout_add_seconds(12, self._auto_refresh)
+
+    def _destroyed(self, *_):
+        self._closed = True
+        GLib.source_remove(self._refresh_timer)
+        for kind, timer in self._volume_timer.items():
+            if timer is not None:
+                GLib.source_remove(timer)
+                self._volume_timer[kind] = None
+        if Gtk.main_level():
+            Gtk.main_quit()
 
     def _device_picker(self, container: Gtk.Box, title: str, kind: str) -> Gtk.ComboBoxText:
         heading = label(title)
@@ -169,7 +180,7 @@ class DccWindow(Gtk.Window):
         return True
 
     def refresh(self):
-        if self._busy or self._action_running:
+        if self._closed or self._busy or self._action_running:
             return False
         self._busy = True
         self.status.set_text("جارٍ قراءة حالة الأجهزة…")
@@ -185,6 +196,8 @@ class DccWindow(Gtk.Window):
 
     def _updated(self, result, error):
         self._busy = False
+        if self._closed:
+            return False
         if error:
             self.status.set_text("تعذر تحديث البيانات: " + error)
         else:
@@ -243,6 +256,8 @@ class DccWindow(Gtk.Window):
         GLib.idle_add(self._restore_scroll, scroll_y)
 
     def _restore_scroll(self, amount):
+        if self._closed:
+            return False
         adj = self.scrolled.get_vadjustment()
         adj.set_value(min(amount, max(0, adj.get_upper() - adj.get_page_size())))
         return False
@@ -324,6 +339,8 @@ class DccWindow(Gtk.Window):
 
     def _action_done(self, description, error, refresh):
         self._action_running = False
+        if self._closed:
+            return False
         if error:
             self.status.set_text(f"لم ينجح «{description}»: {error}")
             self._dialog("تعذّر تنفيذ الأمر", error)
