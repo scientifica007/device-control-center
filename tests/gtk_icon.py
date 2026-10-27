@@ -3,6 +3,7 @@
 Extract a built DEB with dpkg-deb -x first. No installation or hardware writes.
 """
 import argparse
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -15,6 +16,10 @@ def main():
     parser.add_argument("--package-root", type=Path, required=True)
     args = parser.parse_args()
     root = args.package_root.resolve()
+    # Gio validates that Exec can be resolved. Use the extracted launcher,
+    # so this test cannot accidentally rely on an older installed package.
+    os.environ["PATH"] = str(root / "usr/bin") + os.pathsep + os.environ.get("PATH", "")
+    assert Path(shutil.which("device-control-center")) == root / "usr/bin/device-control-center"
     sys.path.insert(0, str(root / "usr/lib/device-control-center"))
     import dcc_app
     from gi.repository import Gdk, Gio, GLib, Gtk
