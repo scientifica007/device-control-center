@@ -22,9 +22,10 @@ def main():
     assert Path(shutil.which("device-control-center")) == root / "usr/bin/device-control-center"
     sys.path.insert(0, str(root / "usr/lib/device-control-center"))
     import dcc_app
-    from gi.repository import Gdk, Gio, GLib, Gtk
+    from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk
 
     assert Path(dcc_app.__file__).is_relative_to(root)
+    assert any(fmt.get_name() == "svg" for fmt in GdkPixbuf.Pixbuf.get_formats()), "Missing SVG loader (librsvg2-common)"
     name = "device-control-center"
     desktop = root / f"usr/share/applications/{name}.desktop"
     info = Gio.DesktopAppInfo.new_from_filename(str(desktop))
@@ -42,6 +43,7 @@ def main():
     expected = root / f"usr/share/icons/hicolor/scalable/apps/{name}.svg"
     for size in (16, 24, 32, 48, 128):
         icon = theme.lookup_icon(name, size, Gtk.IconLookupFlags.FORCE_SIZE)
+        assert icon is not None, "Packaged SVG was not found by GTK"
         assert Path(icon.get_filename()) == expected
         pixels = icon.load_icon()
         assert (pixels.get_width(), pixels.get_height()) == (size, size)

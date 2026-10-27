@@ -13,7 +13,7 @@ Section: utils
 Priority: optional
 Architecture: all
 Maintainer: Device Control Center <maintainers@localhost.invalid>
-Depends: python3 (>= 3.10), python3-gi, gir1.2-gtk-3.0, bluez, upower, wireplumber, network-manager
+Depends: python3 (>= 3.10), python3-gi, gir1.2-gtk-3.0, librsvg2-common, bluez, upower, wireplumber, network-manager
 Description: Arabic desktop hub for Bluetooth battery, audio and Wi-Fi
  Shows Bluetooth devices and their reported battery levels,
  controls default audio input and output, and presents Wi-Fi status.

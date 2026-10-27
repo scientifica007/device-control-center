@@ -16,7 +16,7 @@ jobs:
       - name: Run tests
         run: python3 -m unittest discover -s tests -v
       - name: Install GTK3 smoke-test dependencies
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends python3-gi gir1.2-gtk-3.0 xvfb xauth
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends python3-gi gir1.2-gtk-3.0 librsvg2-common xvfb xauth x11-utils
       - name: Test application startup with Xvfb
         run: |
           xvfb-run -a /usr/bin/python3 tests/gtk_smoke.py
