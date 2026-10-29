@@ -202,6 +202,9 @@ class DccWindow(Gtk.Window):
         scale.set_hexpand(True)
         scale.set_size_request(80, -1)
         scale.set_draw_value(False)
+        # Wheel and two-finger scrolling over a volume control must move the
+        # containing page, never silently alter speaker/microphone volume.
+        scale.connect("scroll-event", self._scroll_over_volume)
         scale.connect("value-changed", lambda w: self.schedule_volume(w, kind))
         row.pack_start(scale, True, True, 0)
         value = label("—")
@@ -210,6 +213,33 @@ class DccWindow(Gtk.Window):
         mute = button("كتم / إلغاء", lambda _: self.action(lambda: core.toggle_mute(kind), "تغيير حالة الكتم"))
         row.pack_start(mute, False, False, 0)
         return scale, value, mute
+
+    def _scroll_over_volume(self, _scale, event):
+        """Send wheel/touchpad vertical scrolling to the page, not GtkScale.
+
+        Returning True blocks the GtkRange default handler, which otherwise
+        changes the volume even if the user intended only to scroll the page.
+        Clicking/dragging the slider and keyboard adjustment are unaffected.
+        """
+        adjustment = self.scrolled.get_vadjustment()
+        step = max(32.0, adjustment.get_step_increment())
+        direction = event.direction
+        if direction == Gdk.ScrollDirection.UP:
+            delta = -step
+        elif direction == Gdk.ScrollDirection.DOWN:
+            delta = step
+        elif direction == Gdk.ScrollDirection.SMOOTH:
+            valid, _dx, dy = event.get_scroll_deltas()
+            if not valid:
+                return True
+            delta = dy * step
+        else:
+            # The page has no horizontal scrollbar. Suppress volume change.
+            return True
+        upper = max(adjustment.get_lower(), adjustment.get_upper() - adjustment.get_page_size())
+        adjustment.set_value(max(adjustment.get_lower(),
+                                 min(upper, adjustment.get_value() + delta)))
+        return True
 
     def _auto_refresh(self):
         self.refresh()
