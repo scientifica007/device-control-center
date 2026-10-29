@@ -23,7 +23,14 @@ jobs:
           xvfb-run -a /usr/bin/python3 tests/gtk_layout.py
           xvfb-run -a /usr/bin/python3 tests/gtk_battery.py
       - name: Build .deb
-        run: bash packaging/build_deb.sh
+        run: |
+          test -x packaging/build_deb.sh
+          bash -n packaging/build_deb.sh
+          build_log="$(bash packaging/build_deb.sh)"
+          echo "$build_log"
+          package_path="$(printf '%s\n' "$build_log" | sed -n 's/^Artifact: //p')"
+          test -f "$package_path"
+          test "$(dpkg-deb -f "$package_path" Version)" = "0.1.6"
       - name: Inspect package
         run: dpkg-deb --info dist/device-control-center_0.1.6_all.deb
       - name: Test packaged desktop icon and GTK identity

@@ -32,5 +32,11 @@ install -m 0644 "$ROOT/README.md" "$PKG_DIR/usr/share/doc/device-control-center/
 install -m 0644 "$ROOT/LICENSE" "$PKG_DIR/usr/share/doc/device-control-center/copyright"
 find "$PKG_DIR" -type d -exec chmod 755 {} \;
 mkdir -p "$OUT"
-dpkg-deb --build --root-owner-group "$PKG_DIR" "$OUT/device-control-center_0.1.6_all.deb"
-echo "Artifact: $OUT/device-control-center_0.1.5_all.deb"
+VERSION="$(sed -n 's/^Version: //p' "$PKG_DIR/DEBIAN/control")"
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Invalid package version: $VERSION" >&2
+    exit 1
+fi
+ARTIFACT="$OUT/device-control-center_${VERSION}_all.deb"
+dpkg-deb --build --root-owner-group "$PKG_DIR" "$ARTIFACT"
+echo "Artifact: $ARTIFACT"
