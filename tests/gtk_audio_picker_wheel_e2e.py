@@ -56,10 +56,17 @@ def main():
                 assert isinstance(picker, Gtk.MenuButton)
                 # Make the closed picker visible in the scrolled viewport,
                 # leaving enough room to continue scrolling downward.
-                body = window.scrolled.get_child()
-                _, widget_y = picker.translate_coordinates(body, 0, 0)
+                # Use the target's *current window coordinates*, not the
+                # coordinates relative to GtkViewport. After the first wheel
+                # test the viewport is already scrolled, so its child position
+                # cannot be interpreted as an unscrolled document offset.
                 maximum = adj.get_upper() - adj.get_page_size()
-                adj.set_value(max(0, min(maximum - 80, widget_y - 80)))
+                _, scroller_y = window.scrolled.translate_coordinates(window, 0, 0)
+                desired_y = scroller_y + window.scrolled.get_allocated_height() * 0.5
+                _, current_y = picker.translate_coordinates(
+                    window, 0, picker.get_allocated_height() // 2)
+                target = adj.get_value() + current_y - desired_y
+                adj.set_value(max(0, min(maximum - 35, target)))
                 pump(0.3)
                 pos = picker.translate_coordinates(
                     window, picker.get_allocated_width() // 2,
@@ -68,10 +75,6 @@ def main():
                 # Ensure we're aiming at the visible part of the main scroller,
                 # not below its viewport or onto the fixed footer.
                 _, scroller_y = window.scrolled.translate_coordinates(window, 0, 0)
-                print("DEBUG wheel target:", picker.get_active_id(), "target:", pos,
-                      "scroller_y:", scroller_y,
-                      "height:", window.scrolled.get_allocated_height(),
-                      "adj:", adj.get_value(), "upper:", maximum, flush=True)
                 assert scroller_y < pos[1] < scroller_y + window.scrolled.get_allocated_height()
                 before = adj.get_value()
                 selected = picker.get_active_id()
