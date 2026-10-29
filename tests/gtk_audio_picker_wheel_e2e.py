@@ -68,6 +68,10 @@ def main():
                 # Ensure we're aiming at the visible part of the main scroller,
                 # not below its viewport or onto the fixed footer.
                 _, scroller_y = window.scrolled.translate_coordinates(window, 0, 0)
+                print("DEBUG wheel target:", picker.get_active_id(), "target:", pos,
+                      "scroller_y:", scroller_y,
+                      "height:", window.scrolled.get_allocated_height(),
+                      "adj:", adj.get_value(), "upper:", maximum, flush=True)
                 assert scroller_y < pos[1] < scroller_y + window.scrolled.get_allocated_height()
                 before = adj.get_value()
                 selected = picker.get_active_id()
