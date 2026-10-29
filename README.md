@@ -1,6 +1,6 @@
 # Device Control Center — مركز التحكم بالأجهزة
 
-تطبيق سطح مكتب عربي RTL لمراقبة الأجهزة المرتبطة بحاسوب Ubuntu 24.04 LTS، مع التركيز على بطاريات Bluetooth، والصوت، والشبكات. الإصدار المرشح الحالي v0.1.5؛ v0.1.3 أساس مستقر معتمد ضمن الوظائف المختبرة.
+تطبيق سطح مكتب عربي RTL لمراقبة الأجهزة المرتبطة بحاسوب Ubuntu 24.04 LTS، مع التركيز على بطاريات Bluetooth، والصوت، والشبكات. الإصدار المرشح الحالي v0.1.6 لتحسين وضوح إشارات Bluetooth/Wi-Fi؛ v0.1.5 ثُبّت واختُبر ميدانيًا في 29/10/2026، وv0.1.3 أساس مستقر سبق اعتماده.
 
 ## إصلاح v0.1.1
 
@@ -24,7 +24,7 @@
     git clone https://github.com/scientifica007/device-control-center.git
     cd device-control-center
     bash packaging/build_deb.sh
-    sudo apt install ./dist/device-control-center_0.1.5_all.deb
+    sudo apt install ./dist/device-control-center_0.1.6_all.deb
 
 ثم تشغيلها من قائمة التطبيقات أو بالأمر:
 
@@ -75,7 +75,7 @@
 
 اختبار الحزمة دون تثبيتها (يتطلب شاشة فعلية أو Xvfb):
 
-    /usr/bin/python3 tests/check_deb_icon.py dist/device-control-center_0.1.5_all.deb
+    /usr/bin/python3 tests/check_deb_icon.py dist/device-control-center_0.1.6_all.deb
 
 ## v0.1.5 — موثوقية غياب البطارية (#2)
 
@@ -94,3 +94,12 @@
 تمت إضافة تجربة اختيارية لا تتطلب تشغيل نافذة التطبيق. تقرأ BlueZ وUPower بواسطة D-Bus وتعرض نسبة الجهاز المتصل أو علامة «—» عند غياب القراءة، بلا استطلاع دوري أو اتصال أو فصل تلقائي. لم تُختبر بعد داخل GNOME Shell الفعلي، ولا تُثبَّت مع حزمة v0.1.5.
 
 ملفات المصدر وتعليمات البناء والتراجع موجودة في [gnome-extension/README.md](gnome-extension/README.md). تتوفر الحزمة التجريبية ZIP ضمن GitHub Actions بعد نجاح الفحوصات. لا تضف الامتداد إلى بيئة GNOME اليومية قبل الاختبار والموافقة الميدانية.
+
+## v0.1.6 — توضيح قوة الإشارة
+
+- فصل نص «قوة إشارة Bluetooth (RSSI)» داخل بطاقة الجهاز عن «قوة إشارة Wi-Fi» داخل قسم الشبكة؛ الوحدات مختلفة وليستا قراءتين لنفس الرابط.
+- Bluetooth RSSI عند توفرها بوحدة dBm، وليست نسبة مئوية؛ غيابها لا يعني ضعف الصوت أو الاتصال.
+- Wi-Fi SIGNAL نسبة يعرضها NetworkManager. إذا لم يوفر قياسًا، تظهر «غير متاحة» بدل «None%».
+- لا مسح دوري جديد ولا تغيير في ربط الأجهزة أو ملف الصوت SBC ولا في عمل امتداد GNOME.
+- تفاصيل حدود القياس وبدائل البحث في [docs/SIGNAL_METRICS.md](docs/SIGNAL_METRICS.md).
+- **v0.1.6 غير مثبّت أو مختبر ميدانيًا حتى الآن**؛ البناء الآلي لا يغني عن تجربة المستخدم.

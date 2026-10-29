@@ -319,7 +319,7 @@ class DccWindow(Gtk.Window):
             if dev.get("stale"):
                 content.pack_start(label("تعذرت قراءة حالة الجهاز؛ قد تكون حالة الاتصال قديمة.", "dcc-low"), False, False, 0)
             rssi = dev.get("rssi")
-            content.pack_start(label("قوة الإشارة (RSSI): " + (f"{rssi} dBm" if rssi is not None else "غير متاحة حاليًا"), "dcc-muted"), False, False, 0)
+            content.pack_start(label("قوة إشارة Bluetooth (RSSI): " + (f"{rssi} dBm" if rssi is not None else "غير متاحة حاليًا (لا تعني ضعف الاتصال)"), "dcc-muted"), False, False, 0)
             actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
             content.pack_start(actions, False, False, 0)
             if dev.get("connected"):
@@ -371,7 +371,13 @@ class DccWindow(Gtk.Window):
 
     def _render_wifi(self, wifi):
         if wifi.get("connected"):
-            self.wifi_info.set_text(f"الشبكة: {isolate(wifi.get('ssid', ''))}   |   قوة الإشارة: {wifi.get('signal', '—')}%   |   التردد: {wifi.get('freq', '—')}")
+            strength = wifi.get("signal")
+            strength_text = f"{strength}%" if strength is not None else "غير متاحة"
+            freq = wifi.get("freq") or "—"
+            self.wifi_info.set_text(
+                f"الشبكة: {isolate(wifi.get('ssid') or 'شبكة غير مسماة')}   |   "
+                f"قوة إشارة Wi-Fi: {strength_text}   |   التردد: {freq}"
+            )
         elif wifi.get("error"):
             self.wifi_info.set_text("بيانات Wi-Fi غير متاحة: " + wifi["error"])
         else:

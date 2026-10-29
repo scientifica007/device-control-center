@@ -29,6 +29,18 @@ def main():
             window.show_all()
             wait(lambda: window.data is not None and not window._busy)
             assert window.get_mapped()
+            initial_labels = [w.get_text() for w in descendants(window.bt_box)
+                              if isinstance(w, Gtk.Label)]
+            assert any("قوة إشارة Bluetooth (RSSI): غير متاحة حاليًا" in s
+                       for s in initial_labels)
+            window._render_wifi({"connected": True, "ssid": "Test Network",
+                                 "signal": 56, "freq": "2452 MHz"})
+            assert "قوة إشارة Wi-Fi: 56%" in window.wifi_info.get_text()
+            assert "قوة إشارة Bluetooth" not in window.wifi_info.get_text()
+            window._render_wifi({"connected": True, "ssid": "Test Network",
+                                 "signal": None, "freq": None})
+            assert "قوة إشارة Wi-Fi: غير متاحة" in window.wifi_info.get_text()
+            assert "None%" not in window.wifi_info.get_text()
             window._updated(snapshot(None, t2), None)
             pump()
             labels = [w.get_text() for w in descendants(window.bt_box) if isinstance(w, Gtk.Label)]

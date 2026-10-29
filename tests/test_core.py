@@ -56,6 +56,12 @@ class CoreTests(unittest.TestCase):
         self.assertTrue(item['trusted'])
         self.assertIsNone(item['rssi'])
 
+    def test_bluetooth_rssi_remains_optional_and_uses_dbm(self):
+        measured = dc.parse_bt_info(BT_INFO + " RSSI: -62\n")
+        self.assertEqual(measured['rssi'], -62)
+        absent = dc.parse_bt_info(BT_INFO)
+        self.assertIsNone(absent['rssi'])
+
     def test_audio_old(self):
         audio = dc.parse_wpctl(WP_OLD)
         self.assertEqual(len(audio['sinks']), 2)
