@@ -189,7 +189,7 @@ def retain_battery_history(devices, previous):
 
 
 def parse_bluetooth_audio_profiles(output: str) -> list[dict[str, Any]]:
-    """Parse active Bluetooth cards only; do not infer active codecs from availability."""
+    """Read the active profile only, not the list of available codecs."""
     profiles = []
     for block in re.split(r"(?=^Card #\d+\s*$)", output, flags=re.M):
         card = re.search(r"^\s*Name:\s*(bluez_card\.[^\s]+)\s*$", block, re.M)
@@ -200,13 +200,34 @@ def parse_bluetooth_audio_profiles(output: str) -> list[dict[str, Any]]:
             continue
         active = current.group(1)
         description = re.search(
-            r'^\s*(?:device\.description|device\.alias)\s*=\s*"([^"]+)"\s*    try:
+            r'^\s*(?:device\.description|device\.alias)\s*=\s*"([^"]+)"',
+            block, re.M)
+        display_name = description.group(1) if description else "جهاز صوت Bluetooth"
+        section = re.search(r"^\s*Profiles:\s*$([\s\S]*?)^\s*Active Profile:",
+                            block, re.M)
+        details = ""
+        if section:
+            active_line = re.search(
+                rf"^\s*{re.escape(active)}:\s*(.+)$", section.group(1), re.M)
+            if active_line:
+                details = active_line.group(1)
+        codec_match = re.search(r"\bcodec\s+([a-zA-Z0-9_+.-]+)", details, re.I)
+        codec = codec_match.group(1).replace("_", "-").upper() if codec_match else None
+        mode = ("A2DP" if active.startswith("a2dp-")
+                else "HFP/HSP" if active.startswith("headset-")
+                else "متوقف" if active == "off" else "غير معروف")
+        profiles.append({"device": display_name, "profile": active,
+                         "mode": mode, "codec": codec})
+    return profiles
+
+
+def get_audio() -> dict[str, Any]:
+    try:
         status = run(["wpctl", "status"], timeout=6)
         audio = parse_wpctl(status)
         audio["bluetooth_profiles"] = []
         audio["bluetooth_profile_error"] = None
-        # Independent read-only diagnosis. An unavailable pactl must never
-        # prevent reading or controlling volume through wpctl.
+        # Diagnostic query only. pactl failures do not break wpctl volume data.
         if "[bluez5]" in status:
             try:
                 audio["bluetooth_profiles"] = parse_bluetooth_audio_profiles(
