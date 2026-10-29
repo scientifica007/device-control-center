@@ -190,6 +190,10 @@ class DccWindow(Gtk.Window):
             renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
             renderer.set_property("max-width-chars", 32)
         container.pack_start(combo, False, False, 0)
+        # Closed pickers otherwise capture the wheel/touchpad gesture and may
+        # change the selected audio device instead of scrolling the page.
+        combo.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
+        combo.connect("scroll-event", self._scroll_over_volume)
         combo.connect("changed", lambda widget: self.select_audio(widget, kind))
         return combo
 
@@ -214,12 +218,12 @@ class DccWindow(Gtk.Window):
         row.pack_start(mute, False, False, 0)
         return scale, value, mute
 
-    def _scroll_over_volume(self, _scale, event):
-        """Send wheel/touchpad vertical scrolling to the page, not GtkScale.
+    def _scroll_over_volume(self, _control, event):
+        """Send wheel/touchpad vertical scrolling to the page, not audio controls.
 
-        Returning True blocks the GtkRange default handler, which otherwise
-        changes the volume even if the user intended only to scroll the page.
-        Clicking/dragging the slider and keyboard adjustment are unaffected.
+        Returning True blocks the default GtkRange and GtkComboBox handlers:
+        neither volume nor the active audio device may change due to scrolling.
+        Explicit slider dragging, keyboard control, and picker selection remain.
         """
         adjustment = self.scrolled.get_vadjustment()
         step = max(32.0, adjustment.get_step_increment())
