@@ -235,17 +235,27 @@ class DccWindow(Gtk.Window):
         if self._closed:
             return False
         if error:
+            if self.data:
+                previous = self.data["bluetooth"]
+                self.data["bluetooth"] = core.retain_battery_history(
+                    [dict(d, stale=True, battery_stale=True, battery_query_at=None) for d in previous], previous)
+                self._render_devices(self.data)
             self.status.set_text("تعذر تحديث البيانات: " + error)
         else:
             if self.data:
                 # Retain last successful devices only on explicit query failures.
                 if result.get("bluetooth_error"):
-                    result["bluetooth"] = [dict(d, stale=True) for d in self.data["bluetooth"]]
+                    result["bluetooth"] = [dict(d, stale=True, battery_stale=True,
+                                                battery_query_at=result.get("bluetooth_query_at"))
+                                           for d in self.data["bluetooth"]]
                 else:
                     previous = {d["mac"]: d for d in self.data["bluetooth"]}
-                    result["bluetooth"] = [dict(previous[d["mac"]], error=d["error"], stale=True)
+                    result["bluetooth"] = [dict(previous[d["mac"]], **d, stale=True,
+                                                battery_stale=d.get("battery") is None)
                                            if d.get("error") and d["mac"] in previous else d
                                            for d in result["bluetooth"]]
+            result["bluetooth"] = core.retain_battery_history(
+                result["bluetooth"], self.data["bluetooth"] if self.data else [])
             self.data = result
             self._render_devices(result)
             self._render_audio(result["audio"])
@@ -276,7 +286,15 @@ class DccWindow(Gtk.Window):
             content.pack_start(label(f"عنوان الجهاز: {isolate(dev['mac'])}", "dcc-muted"), False, False, 0)
             battery = dev.get("battery")
             if battery is None:
-                content.pack_start(label("البطارية: لا يوفر النظام قراءة متاحة لهذا الجهاز"), False, False, 0)
+                content.pack_start(label("البطارية الحالية: غير متاحة من النظام"), False, False, 0)
+                history = dev.get("battery_last_known")
+                if history:
+                    observed = history.get("observed_at")
+                    moment = (GLib.DateTime.new_from_iso8601(observed, None).to_local().format("%H:%M:%S")
+                              if observed else "وقت غير متاح")
+                    content.pack_start(label(
+                        f"آخر قيمة معروفة (قديمة): {isolate(str(history['percent']) + '%')} — "
+                        f"{history.get('source') or 'مصدر غير متاح'}، {isolate(moment)}", "dcc-muted"), False, False, 0)
             else:
                 content.pack_start(label(isolate(f"{battery}%"), "dcc-battery"), False, False, 0)
                 progress = Gtk.ProgressBar()
@@ -287,13 +305,19 @@ class DccWindow(Gtk.Window):
                     progress.get_style_context().add_class("dcc-low")
                     content.pack_start(label("شحن منخفض", "dcc-low"), False, False, 0)
             checked = dev.get("battery_checked_at")
+            query = dev.get("battery_query_at")
+            if query:
+                moment = GLib.DateTime.new_from_iso8601(query, None).to_local().format("%H:%M:%S")
+                content.pack_start(label(f"آخر محاولة فحص البطارية: {isolate(moment)}", "dcc-muted"), False, False, 0)
+            if dev.get("battery_error"):
+                content.pack_start(label(dev["battery_error"], "dcc-muted"), False, False, 0)
             source = dev.get("battery_source")
             if checked and source:
                 moment = GLib.DateTime.new_from_iso8601(checked, None).to_local().format("%H:%M:%S")
                 content.pack_start(label(f"آخر قراءة ناجحة من {source}: {isolate(moment)}", "dcc-muted"), False, False, 0)
                 content.pack_start(label("آخر قيمة متاحة في النظام؛ وقت إبلاغ السماعة غير متاح.", "dcc-muted"), False, False, 0)
             if dev.get("stale"):
-                content.pack_start(label("تعذرت القراءة الحالية؛ هذه آخر بيانات ناجحة.", "dcc-low"), False, False, 0)
+                content.pack_start(label("تعذرت قراءة حالة الجهاز؛ قد تكون حالة الاتصال قديمة.", "dcc-low"), False, False, 0)
             rssi = dev.get("rssi")
             content.pack_start(label("قوة الإشارة (RSSI): " + (f"{rssi} dBm" if rssi is not None else "غير متاحة حاليًا"), "dcc-muted"), False, False, 0)
             actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)

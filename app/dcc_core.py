@@ -110,20 +110,28 @@ def parse_volume(output: str) -> dict[str, Any]:
     return {"percent": round(float(match.group(1)) * 100), "muted": bool(match.group(2))}
 
 
-def _upower_batteries() -> dict[str, int]:
+def _upower_batteries(errors: list[str] | None = None) -> dict[str, int]:
     batteries: dict[str, int] = {}
+    errors = errors if errors is not None else []
     try:
         paths = run(["upower", "-e"], timeout=5)
-        for path in paths.splitlines():
-            mac = re.search(r"headset_dev_((?:[0-9a-fA-F]{2}_){5}[0-9a-fA-F]{2})", path)
-            if not mac:
-                continue
-            details = run(["upower", "-i", path], timeout=5)
-            value = re.search(r"^\s*percentage:\s*(\d+(?:\.\d+)?)%", details, re.M)
-            if value:
-                batteries[mac.group(1).replace("_", ":").upper()] = round(float(value.group(1)))
     except CommandError:
-        pass
+        errors.append("تعذر تعداد مصادر UPower")
+        return batteries
+    for path in paths.splitlines():
+        mac = re.search(r"headset_dev_((?:[0-9a-fA-F]{2}_){5}[0-9a-fA-F]{2})", path)
+        if not mac:
+            continue
+        try:
+            details = run(["upower", "-i", path], timeout=5)
+        except CommandError:
+            errors.append("تعذرت قراءة أحد مصادر UPower")
+            continue
+        if re.search(r"^\s*present:\s*no\s*$", details, re.M):
+            continue
+        value = re.search(r"^\s*percentage:\s*(\d+(?:\.\d+)?)%", details, re.M)
+        if value and 0 <= float(value.group(1)) <= 100:
+            batteries[mac.group(1).replace("_", ":").upper()] = round(float(value.group(1)))
     return batteries
 
 
@@ -134,6 +142,7 @@ def get_bluetooth() -> tuple[list[dict[str, Any]], str | None]:
     except CommandError as err:
         return [], str(err)
     upower_batts = None
+    upower_errors: list[str] = []
     for device in devices[:20]:
         try:
             details = parse_bt_info(run(["bluetoothctl", "info", device["mac"]], timeout=6))
@@ -143,13 +152,40 @@ def get_bluetooth() -> tuple[list[dict[str, Any]], str | None]:
             device["error"] = str(err)
         if device.get("battery") is None:
             if upower_batts is None:
-                upower_batts = _upower_batteries()
+                upower_batts = _upower_batteries(upower_errors)
             device["battery"] = upower_batts.get(device["mac"])
             if device["battery"] is not None:
                 device["battery_source"] = "UPower"
-        device["battery_checked_at"] = (datetime.now(timezone.utc).isoformat()
+        device["battery_query_at"] = datetime.now(timezone.utc).isoformat()
+        device["battery_error"] = ("؛ ".join(upower_errors) or None) if device.get("battery") is None else None
+        device["battery_checked_at"] = (device["battery_query_at"]
                                          if device.get("battery") is not None else None)
     return devices[:20], None
+
+
+def retain_battery_history(devices, previous):
+    """Session-only observations, always separate from the current reading.
+
+    No persistence, guessed values or device-report timestamps. A successful
+    empty device list stays empty; old devices are never resurrected here.
+    """
+    old = {d["mac"]: d for d in previous}
+    result = []
+    for device in devices:
+        item = dict(device)
+        prior = old.get(item["mac"], {})
+        history = prior.get("battery_last_known")
+        if prior.get("battery") is not None and not prior.get("stale"):
+            history = {"percent": prior["battery"], "source": prior.get("battery_source"),
+                       "observed_at": prior.get("battery_checked_at")}
+        if item.get("battery_stale", item.get("stale", False)):
+            item.update(battery=None, battery_source=None, battery_checked_at=None)
+        elif item.get("battery") is not None:
+            history = {"percent": item["battery"], "source": item.get("battery_source"),
+                       "observed_at": item.get("battery_checked_at")}
+        item["battery_last_known"] = history
+        result.append(item)
+    return result
 
 
 def get_audio() -> dict[str, Any]:
@@ -189,6 +225,7 @@ def get_wifi() -> dict[str, Any]:
 def snapshot() -> dict[str, Any]:
     devices, error = get_bluetooth()
     return {"timestamp": datetime.now(timezone.utc).isoformat(),
+            "bluetooth_query_at": datetime.now(timezone.utc).isoformat(),
             "bluetooth": devices, "bluetooth_error": error,
             "audio": get_audio(), "wifi": get_wifi()}
 

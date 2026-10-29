@@ -46,7 +46,10 @@ def main():
             assert w.get_direction() == Gtk.TextDirection.RTL
             for width, height in [(780, 620), (520, 470), (440, 400), (900, 650)]:
                 w.resize(width, height)
-                pump(0.4)
+                # Wayland resize is asynchronous; do not scroll against the
+                # preceding window size while waiting for its configure event.
+                wait(lambda: tuple(w.get_size()) == (width, height), timeout=5)
+                pump(0.2)
                 assert w.get_size().width <= width, (width, w.get_size())
                 w.scrolled.emit("scroll-child", Gtk.ScrollType.END, False)
                 adj = w.scrolled.get_vadjustment()
@@ -106,7 +109,8 @@ def main():
                 prior = copy.deepcopy(w.data)
                 w._updated({**copy.deepcopy(fixture), "bluetooth": [], "bluetooth_error": "temporary failure"}, None)
                 assert w.data["bluetooth"][0]["stale"]
-                assert w.data["bluetooth"][0]["battery"] == prior["bluetooth"][0]["battery"]
+                assert w.data["bluetooth"][0]["battery"] is None
+                assert w.data["bluetooth"][0]["battery_last_known"]["percent"] == prior["bluetooth"][0]["battery"]
                 w._updated({**copy.deepcopy(fixture), "bluetooth": []}, None)
                 assert w.data["bluetooth"] == [], "Successful empty query must remove old devices"
             writes.assert_not_called()
