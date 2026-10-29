@@ -102,6 +102,9 @@ class AudioDevicePicker(Gtk.MenuButton):
         popup = Gtk.Popover.new(self)
         popup.add(self._choices)
         self.set_popover(popup)
+        # The popover itself stays closed until explicitly clicked, but its
+        # content must be visible once GTK maps the popup.
+        self._choices.show()
         button_content.show_all()
 
     def remove_all(self):

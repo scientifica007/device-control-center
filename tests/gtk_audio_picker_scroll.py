@@ -79,6 +79,16 @@ def main():
             assert window.in_scale.get_value() == original_volume_in
             audio_changes.assert_not_called()
             volume_changes.assert_not_called()
+            # Assert the actual popover can open and reveal its choices, not
+            # merely that an otherwise hidden Gtk.Button responds to clicked().
+            window.out_combo.set_active(True)
+            pump()
+            assert window.out_combo.get_popover().get_visible()
+            assert window.out_combo._choices.get_visible()
+            assert all(child.get_visible() for child in
+                       window.out_combo._choices.get_children())
+            window.out_combo.get_popover().popdown()
+            pump()
             # Explicitly clicking an alternative remains possible; only then
             # should the app be allowed to request a new default audio device.
             window.out_combo._choices.get_children()[1].clicked()
