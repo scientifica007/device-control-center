@@ -11,7 +11,8 @@ from gtk_layout import DccWindow, Gtk, core, pump, wait
 
 def wheel_at(picker, window, direction="5"):
     # Gdk.Window's origin is in root coordinates under X11 / Xvfb.
-    origin_x, origin_y = window.get_window().get_origin()
+    # PyGObject returns (success, x, y) for get_origin on Ubuntu 24.04.
+    origin_x, origin_y = window.get_window().get_origin()[-2:]
     x, y = picker.translate_coordinates(
         window, picker.get_allocated_width() // 2,
         picker.get_allocated_height() // 2)
