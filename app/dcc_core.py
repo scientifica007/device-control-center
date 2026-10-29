@@ -188,6 +188,129 @@ def retain_battery_history(devices, previous):
     return result
 
 
+def parse_bluetooth_audio_profiles(output: str) -> list[dict[str, Any]]:
+    """Parse active Bluetooth cards only; do not infer active codecs from availability."""
+    profiles = []
+    for block in re.split(r"(?=^Card #\d+\s*$)", output, flags=re.M):
+        card = re.search(r"^\s*Name:\s*(bluez_card\.[^\s]+)\s*$", block, re.M)
+        if not card:
+            continue
+        current = re.search(r"^\s*Active Profile:\s*(\S+)\s*$", block, re.M)
+        if not current:
+            continue
+        active = current.group(1)
+        description = re.search(
+            r'^\s*(?:device\.description|device\.alias)\s*=\s*"([^"]+)"\s*    try:
+        status = run(["wpctl", "status"], timeout=6)
+        audio = parse_wpctl(status)
+        audio["bluetooth_profiles"] = []
+        audio["bluetooth_profile_error"] = None
+        # Independent read-only diagnosis. An unavailable pactl must never
+        # prevent reading or controlling volume through wpctl.
+        if "[bluez5]" in status:
+            try:
+                audio["bluetooth_profiles"] = parse_bluetooth_audio_profiles(
+                    run(["pactl", "list", "cards"], timeout=6))
+            except CommandError as err:
+                audio["bluetooth_profile_error"] = str(err)
+        for key, target in (("out", "@DEFAULT_AUDIO_SINK@"), ("in", "@DEFAULT_AUDIO_SOURCE@")):
+            try:
+                audio[key] = parse_volume(run(["wpctl", "get-volume", target], timeout=5))
+            except CommandError:
+                audio[key] = {"percent": None, "muted": False}
+        audio["error"] = None
+        return audio
+    except CommandError as err:
+        return {"sinks": [], "sources": [], "out": {"percent": None, "muted": False},
+                "in": {"percent": None, "muted": False},
+                "bluetooth_profiles": [], "bluetooth_profile_error": None,
+                "error": str(err)}
+
+
+def get_wifi() -> dict[str, Any]:
+    try:
+        lines = run(["nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL,FREQ", "device", "wifi", "list", "--rescan", "no"], timeout=6)
+        for line in lines.splitlines():
+            if not line.startswith("*:"):
+                continue
+            parts = re.split(r"(?<!\\):", line)
+            if len(parts) >= 4:
+                freq = parts[-1].replace("\\:", ":")
+                signal = parts[-2]
+                ssid = ":".join(parts[1:-2]).replace("\\:", ":").replace("\\\\", "\\")
+                return {"connected": True, "ssid": ssid or "شبكة مخفية",
+                        "signal": int(signal) if signal.isdecimal() else None, "freq": freq}
+        return {"connected": False, "ssid": None, "signal": None, "freq": None}
+    except (CommandError, ValueError) as err:
+        return {"connected": False, "ssid": None, "signal": None,
+                "freq": None, "error": str(err)}
+
+
+def snapshot() -> dict[str, Any]:
+    devices, error = get_bluetooth()
+    return {"timestamp": datetime.now(timezone.utc).isoformat(),
+            "bluetooth_query_at": datetime.now(timezone.utc).isoformat(),
+            "bluetooth": devices, "bluetooth_error": error,
+            "audio": get_audio(), "wifi": get_wifi()}
+
+
+def set_volume(kind: str, percent: int) -> None:
+    if kind not in ("out", "in") or not isinstance(percent, int) or not 0 <= percent <= 100:
+        raise ValueError("مستوى الصوت أو نوعه غير صالح")
+    target = "@DEFAULT_AUDIO_SINK@" if kind == "out" else "@DEFAULT_AUDIO_SOURCE@"
+    run(["wpctl", "set-volume", target, f"{percent}%"], timeout=6)
+
+
+def toggle_mute(kind: str) -> None:
+    if kind not in ("out", "in"):
+        raise ValueError("نوع الصوت غير صالح")
+    target = "@DEFAULT_AUDIO_SINK@" if kind == "out" else "@DEFAULT_AUDIO_SOURCE@"
+    run(["wpctl", "set-mute", target, "toggle"], timeout=6)
+
+
+def set_default_audio(node_id: int, kind: str, audio: dict[str, Any]) -> None:
+    if kind not in ("sinks", "sources"):
+        raise ValueError("نوع الجهاز غير صالح")
+    if node_id not in [item["id"] for item in audio.get(kind, [])]:
+        raise ValueError("لم يعد الجهاز مدرجًا؛ حدّث البيانات")
+    run(["wpctl", "set-default", str(node_id)], timeout=6)
+
+
+def bluetooth_action(mac: str, action: str) -> None:
+    if not MAC_RE.fullmatch(mac) or action not in ("connect", "disconnect", "pair"):
+        raise ValueError("الأمر أو عنوان الجهاز غير صالح")
+    run(["bluetoothctl", action, mac.upper()], timeout=18)
+
+
+def scan() -> str:
+    try:
+        return run(["bluetoothctl", "--timeout", "8", "scan", "on"], timeout=13)
+    finally:
+        try:
+            run(["bluetoothctl", "scan", "off"], timeout=5)
+        except CommandError:
+            pass
+,
+            block, re.M)
+        display_name = description.group(1) if description else "جهاز صوت Bluetooth"
+        section = re.search(r"^\s*Profiles:\s*$([\s\S]*?)^\s*Active Profile:",
+                            block, re.M)
+        details = ""
+        if section:
+            active_line = re.search(
+                rf"^\s*{re.escape(active)}:\s*(.+)$", section.group(1), re.M)
+            if active_line:
+                details = active_line.group(1)
+        codec_match = re.search(r"\bcodec\s+([a-zA-Z0-9_+.-]+)", details, re.I)
+        codec = codec_match.group(1).replace("_", "-").upper() if codec_match else None
+        mode = ("A2DP" if active.startswith("a2dp-")
+                else "HFP/HSP" if active.startswith("headset-")
+                else "متوقف" if active == "off" else "غير معروف")
+        profiles.append({"device": display_name, "profile": active,
+                         "mode": mode, "codec": codec})
+    return profiles
+
+
 def get_audio() -> dict[str, Any]:
     try:
         audio = parse_wpctl(run(["wpctl", "status"], timeout=6))

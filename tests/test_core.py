@@ -80,6 +80,73 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(dc.parse_volume('Volume: 0.92')['percent'], 92)
         self.assertTrue(dc.parse_volume('Volume: 0.00 [MUTED]')['muted'])
 
+    def test_parse_bluetooth_codec_from_active_profile_only(self):
+        raw = """Card #19
+    Name: alsa_card.pci-0000_00_1b.0
+    Active Profile: output:analog-stereo+input:analog-stereo
+Card #42
+    Name: bluez_card.AA_BB_CC_DD_EE_FF
+    Properties:
+        device.description = "Synthetic headset"
+    Profiles:
+        off: Off (sinks: 0, sources: 0, priority: 0, available: yes)
+        a2dp-sink: High Fidelity Playback (A2DP Sink, codec SBC) (sinks: 1, sources: 0, priority: 18, available: yes)
+        a2dp-sink-sbc_xq: High Fidelity Playback (A2DP Sink, codec SBC-XQ) (sinks: 1, sources: 0, priority: 17, available: yes)
+        headset-head-unit-msbc: Headset (codec mSBC) (sinks: 1, sources: 1, priority: 3, available: yes)
+    Active Profile: a2dp-sink
+Card #43
+    Name: bluez_card.11_22_33_44_55_66
+    Properties:
+        device.description = "Other headset"
+    Profiles:
+        a2dp-sink: High Fidelity Playback (codec SBC) (sinks: 1, sources: 0)
+        a2dp-sink-sbc_xq: High Fidelity Playback (codec SBC-XQ) (sinks: 1, sources: 0)
+    Active Profile: a2dp-sink-sbc_xq
+"""
+        parsed = dc.parse_bluetooth_audio_profiles(raw)
+        self.assertEqual(len(parsed), 2)
+        self.assertEqual(parsed[0], {'device': 'Synthetic headset',
+                                     'profile': 'a2dp-sink', 'mode': 'A2DP', 'codec': 'SBC'})
+        self.assertEqual(parsed[1]['codec'], 'SBC-XQ')
+        self.assertEqual(parsed[1]['profile'], 'a2dp-sink-sbc_xq')
+
+    def test_unknown_active_profile_does_not_guess_codec(self):
+        raw = """Card #12
+    Name: bluez_card.AA_BB_CC_DD_EE_FF
+    Profiles:
+        a2dp-sink: High Fidelity Playback (codec SBC)
+    Active Profile: headset-head-unit-msbc
+"""
+        profiles = dc.parse_bluetooth_audio_profiles(raw)
+        self.assertEqual(len(profiles), 1)
+        self.assertEqual(profiles[0]['mode'], 'HFP/HSP')
+        self.assertIsNone(profiles[0]['codec'])
+
+    def test_get_audio_pactl_failure_keeps_volume(self):
+        def mocked_run(argv, timeout=6):
+            if argv[:2] == ['wpctl', 'status']:
+                return WP_OLD
+            if argv[:3] == ['pactl', 'list', 'cards']:
+                raise dc.CommandError('pactl unavailable')
+            if argv[:2] == ['wpctl', 'get-volume']:
+                return 'Volume: 0.48'
+            raise AssertionError(argv)
+        with patch.object(dc, 'run', side_effect=mocked_run):
+            audio = dc.get_audio()
+        self.assertIsNone(audio['error'])
+        self.assertEqual(audio['out']['percent'], 48)
+        self.assertEqual(audio['in']['percent'], 48)
+        self.assertEqual(audio['bluetooth_profiles'], [])
+        self.assertIn('pactl', audio['bluetooth_profile_error'])
+
+    def test_get_audio_skips_pactl_without_bluetooth_card(self):
+        plain_status = WP_OLD.replace('[bluez5]', '[alsa]')
+        with patch.object(dc, 'run') as query:
+            query.side_effect = [plain_status, 'Volume: 0.48', 'Volume: 0.31']
+            audio = dc.get_audio()
+        self.assertEqual(query.call_count, 3)
+        self.assertEqual(audio['bluetooth_profiles'], [])
+
     def test_reject_bad_actions(self):
         for action in ('exec', 'trust'):
             with self.assertRaises(ValueError):

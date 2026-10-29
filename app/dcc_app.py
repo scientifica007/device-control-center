@@ -209,6 +209,8 @@ class DccWindow(Gtk.Window):
         audio_frame.add(audio_box)
         self.audio_info = label("", "dcc-muted")
         audio_box.pack_start(self.audio_info, False, False, 0)
+        self.bluetooth_codec_info = label("", "dcc-muted")
+        audio_box.pack_start(self.bluetooth_codec_info, False, False, 0)
 
         self.out_combo = self._device_picker(audio_box, "جهاز إخراج الصوت", "sinks")
         self.out_scale, self.out_value, self.out_mute = self._volume_row(audio_box, "مستوى صوت الإخراج", "out")
@@ -450,6 +452,22 @@ class DccWindow(Gtk.Window):
     def _render_audio(self, data):
         self._updating = True
         self.audio_info.set_text("تعذرت قراءة الصوت: " + data["error"] if data.get("error") else "الأجهزة والمستويات الافتراضية في النظام")
+        bt_profiles = data.get("bluetooth_profiles") or []
+        if bt_profiles:
+            lines = []
+            for card in bt_profiles:
+                mode = card.get("mode") or "غير معروف"
+                codec = card.get("codec") or "غير محدد من النظام"
+                device = isolate(card.get("device") or "جهاز صوت Bluetooth")
+                profile = isolate(card.get("profile") or "—")
+                lines.append(f"ملف Bluetooth الصوتي — {device}: {mode} / {codec} (الملف: {profile})")
+                if codec == "SBC-XQ":
+                    lines.append("تنبيه توافق: قد يكون SBC-XQ غير مستقر على بعض الأجهزة؛ لا يغيّر التطبيق هذا الإعداد.")
+            self.bluetooth_codec_info.set_text("\n".join(lines))
+        elif data.get("bluetooth_profile_error"):
+            self.bluetooth_codec_info.set_text("تعذرت قراءة ملف Bluetooth الصوتي: " + data["bluetooth_profile_error"])
+        else:
+            self.bluetooth_codec_info.set_text("ملف Bluetooth الصوتي: لا تتوفر بطاقة Bluetooth صوتية نشطة للقراءة.")
         try:
             for kind, combo in (("sinks", self.out_combo), ("sources", self.in_combo)):
                 current = combo.get_active_id()
