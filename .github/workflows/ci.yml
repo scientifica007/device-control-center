@@ -33,3 +33,14 @@ jobs:
         with:
           name: device-control-center-deb
           path: dist/device-control-center_0.1.5_all.deb
+      - name: Validate GNOME 46 battery indicator prototype
+        run: |
+          node --check gnome-extension/extension.js
+          node --check gnome-extension/battery-state.js
+          node tests/test_extension.mjs
+          python3 packaging/build_extension.py
+      - name: Upload optional GNOME 46 extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: device-control-center-gnome46-prototype
+          path: dist/battery@scientifica007.github.io.shell-extension.zip

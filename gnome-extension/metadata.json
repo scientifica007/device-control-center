@@ -1,0 +1,10 @@
+{
+  "uuid": "battery@scientifica007.github.io",
+  "name": "Device Control Center — Bluetooth Battery",
+  "description": "Read-only Arabic Bluetooth battery indicator for GNOME 46",
+  "shell-version": [
+    "46"
+  ],
+  "version": 1,
+  "url": "https://github.com/scientifica007/device-control-center"
+}
