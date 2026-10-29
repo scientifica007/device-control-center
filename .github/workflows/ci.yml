@@ -16,7 +16,7 @@ jobs:
       - name: Run tests
         run: python3 -m unittest discover -s tests -v
       - name: Install GTK3 smoke-test dependencies
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends python3-gi gir1.2-gtk-3.0 librsvg2-common xvfb xauth x11-utils
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends python3-gi gir1.2-gtk-3.0 librsvg2-common xvfb xauth x11-utils xdotool
       - name: Test application startup with Xvfb
         run: |
           xvfb-run -a /usr/bin/python3 tests/gtk_smoke.py
@@ -24,6 +24,7 @@ jobs:
           xvfb-run -a /usr/bin/python3 tests/gtk_battery.py
           xvfb-run -a /usr/bin/python3 tests/gtk_volume_scroll.py
           xvfb-run -a /usr/bin/python3 tests/gtk_audio_picker_scroll.py
+          xvfb-run -a /usr/bin/python3 tests/gtk_audio_picker_wheel_e2e.py
       - name: Build .deb
         run: |
           test -x packaging/build_deb.sh
@@ -32,16 +33,16 @@ jobs:
           echo "$build_log"
           package_path="$(printf '%s\n' "$build_log" | sed -n 's/^Artifact: //p')"
           test -f "$package_path"
-          test "$(dpkg-deb -f "$package_path" Version)" = "0.1.8"
+          test "$(dpkg-deb -f "$package_path" Version)" = "0.1.9"
       - name: Inspect package
-        run: dpkg-deb --info dist/device-control-center_0.1.8_all.deb
+        run: dpkg-deb --info dist/device-control-center_0.1.9_all.deb
       - name: Test packaged desktop icon and GTK identity
-        run: xvfb-run -a /usr/bin/python3 tests/check_deb_icon.py dist/device-control-center_0.1.8_all.deb
+        run: xvfb-run -a /usr/bin/python3 tests/check_deb_icon.py dist/device-control-center_0.1.9_all.deb
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: device-control-center-deb
-          path: dist/device-control-center_0.1.8_all.deb
+          path: dist/device-control-center_0.1.9_all.deb
       - name: Validate GNOME 46 battery indicator prototype
         run: |
           node --check gnome-extension/extension.js

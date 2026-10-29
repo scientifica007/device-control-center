@@ -3,7 +3,7 @@
 Uses synthetic devices and simulated GDK scroll events. No audio changes.
 """
 from unittest.mock import patch
-from gtk_layout import DccWindow, Gdk, core, pump, wait
+from gtk_layout import DccWindow, Gtk, Gdk, core, pump, wait
 
 
 def gdk_scroll(widget, direction):
@@ -44,6 +44,8 @@ def main():
             assert maximum > 100
             assert window.out_combo.get_sensitive()
             assert window.in_combo.get_sensitive()
+            assert isinstance(window.out_combo, Gtk.MenuButton)
+            assert isinstance(window.in_combo, Gtk.MenuButton)
             original_out = window.out_combo.get_active_id()
             original_in = window.in_combo.get_active_id()
             assert original_out == "10"
@@ -77,6 +79,11 @@ def main():
             assert window.in_scale.get_value() == original_volume_in
             audio_changes.assert_not_called()
             volume_changes.assert_not_called()
+            # Explicitly clicking an alternative remains possible; only then
+            # should the app be allowed to request a new default audio device.
+            window.out_combo._choices.get_children()[1].clicked()
+            wait(lambda: audio_changes.call_count == 1, timeout=5)
+            assert audio_changes.call_args.args[0] == 11
         finally:
             window.destroy()
             pump()

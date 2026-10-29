@@ -69,6 +69,80 @@ def clear_box(box: Gtk.Box) -> None:
         box.remove(child)
 
 
+class AudioDevicePicker(Gtk.MenuButton):
+    """An explicit-choice picker: wheel scrolling must not select audio devices.
+
+    Gtk.ComboBoxText has internal event recipients that can eat wheel events
+    before a scroll-event handler attached to the combobox sees them. A plain
+    MenuButton with a click-only popover avoids scrolling through options when
+    closed, while preserving the existing read/set-selection interface.
+    """
+
+    def __init__(self, changed):
+        super().__init__()
+        self._on_changed = changed
+        self._options = []
+        self._active_id = None
+        self.set_hexpand(True)
+
+        button_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self._display = Gtk.Label(label="—")
+        self._display.set_xalign(0.0)
+        self._display.set_hexpand(True)
+        self._display.set_ellipsize(Pango.EllipsizeMode.END)
+        self._display.set_max_width_chars(32)
+        button_content.pack_start(
+            Gtk.Image.new_from_icon_name("pan-down-symbolic", Gtk.IconSize.MENU),
+            False, False, 0)
+        button_content.pack_start(self._display, True, True, 0)
+        self.add(button_content)
+
+        self._choices = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        self._choices.set_border_width(6)
+        popup = Gtk.Popover.new(self)
+        popup.add(self._choices)
+        self.set_popover(popup)
+        button_content.show_all()
+
+    def remove_all(self):
+        self._options.clear()
+        self._active_id = None
+        self._display.set_text("—")
+        for child in self._choices.get_children():
+            self._choices.remove(child)
+
+    def append(self, identifier, name):
+        identifier = str(identifier)
+        self._options.append((identifier, name))
+        option = Gtk.Button.new_with_label(name)
+        option.set_relief(Gtk.ReliefStyle.NONE)
+        option.connect("clicked", lambda _button, key=identifier: self._choose(key))
+        self._choices.pack_start(option, False, False, 0)
+        option.show()
+
+    def get_active_id(self):
+        return self._active_id
+
+    def set_active_id(self, identifier):
+        for key, name in self._options:
+            if key == str(identifier):
+                self._active_id = key
+                self._display.set_text(name)
+                return True
+        return False
+
+    def select_first(self):
+        if self._options:
+            self.set_active_id(self._options[0][0])
+
+    def _choose(self, identifier):
+        previous = self._active_id
+        if self.set_active_id(identifier):
+            self.get_popover().popdown()
+            if self._active_id != previous:
+                self._on_changed(self)
+
+
 class DccWindow(Gtk.Window):
     def __init__(self):
         super().__init__(title="مركز التحكم بالأجهزة")
@@ -181,21 +255,16 @@ class DccWindow(Gtk.Window):
         if Gtk.main_level():
             Gtk.main_quit()
 
-    def _device_picker(self, container: Gtk.Box, title: str, kind: str) -> Gtk.ComboBoxText:
+    def _device_picker(self, container: Gtk.Box, title: str, kind: str) -> AudioDevicePicker:
         heading = label(title)
         container.pack_start(heading, False, False, 0)
-        combo = Gtk.ComboBoxText()
-        combo.set_hexpand(True)
-        for renderer in combo.get_cells():
-            renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
-            renderer.set_property("max-width-chars", 32)
-        container.pack_start(combo, False, False, 0)
-        # Closed pickers otherwise capture the wheel/touchpad gesture and may
-        # change the selected audio device instead of scrolling the page.
-        combo.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
-        combo.connect("scroll-event", self._scroll_over_volume)
-        combo.connect("changed", lambda widget: self.select_audio(widget, kind))
-        return combo
+        picker = AudioDevicePicker(lambda widget: self.select_audio(widget, kind))
+        # The closed MenuButton does not have a ComboBox's wheel-selection
+        # behavior. Explicitly forward any event sent directly to the button.
+        picker.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
+        picker.connect("scroll-event", self._scroll_over_volume)
+        container.pack_start(picker, False, False, 0)
+        return picker
 
     def _volume_row(self, container: Gtk.Box, title: str, kind: str):
         container.pack_start(label(title, "dcc-muted"), False, False, 0)
@@ -221,8 +290,8 @@ class DccWindow(Gtk.Window):
     def _scroll_over_volume(self, _control, event):
         """Send wheel/touchpad vertical scrolling to the page, not audio controls.
 
-        Returning True blocks the default GtkRange and GtkComboBox handlers:
-        neither volume nor the active audio device may change due to scrolling.
+        Returning True blocks GtkRange wheel handling and any direct MenuButton
+        scroll event; choosing an audio device requires an explicit click.
         Explicit slider dragging, keyboard control, and picker selection remain.
         """
         adjustment = self.scrolled.get_vadjustment()
@@ -388,7 +457,7 @@ class DccWindow(Gtk.Window):
                 if default:
                     combo.set_active_id(default)
                 elif data.get(kind):
-                    combo.set_active(0)
+                    combo.select_first()
                 combo.set_sensitive(bool(data.get(kind)))
             for kind, scale, value, mute in (("out", self.out_scale, self.out_value, self.out_mute),
                                              ("in", self.in_scale, self.in_value, self.in_mute)):
