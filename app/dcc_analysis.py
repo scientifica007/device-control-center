@@ -81,11 +81,25 @@ def _safe_profile(obj):
 
 
 def _series_points(points, limit=SERIES_LIMIT):
-    """Cap output size; preserve first/last, with a roughly uniform sampling."""
+    """Downsample a plot, retaining local minima/maxima and first/last events.
+
+    This only reduces SVG/JSON timeline size; all original observations still
+    contribute to counts, means and bounds, and the source JSONL is untouched.
+    """
     if len(points) <= limit:
         return points
-    indices = sorted({round(i * (len(points) - 1) / (limit - 1)) for i in range(limit)})
-    return [points[i] for i in indices]
+    buckets = max(1, (limit - 2) // 2)
+    width = math.ceil((len(points) - 2) / buckets)
+    chosen = [0]
+    for start in range(1, len(points) - 1, width):
+        end = min(len(points) - 1, start + width)
+        bucket = range(start, end)
+        chosen.extend(sorted({
+            min(bucket, key=lambda i: points[i][1]),
+            max(bucket, key=lambda i: points[i][1]),
+        }))
+    chosen.append(len(points) - 1)
+    return [points[i] for i in sorted(set(chosen))]
 
 
 def analyse_file(path):
