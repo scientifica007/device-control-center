@@ -39,7 +39,7 @@ Existing «تصدير تقرير JSON» remains distinct: it exports the applica
 ## User operation
 
 1. Open the application and observe the ordinary device snapshot.
-2. Click «بدء التسجيل». Only at that moment is the private log directory/file created. The current snapshot, if available, becomes the first checkpoint.
+2. Click «بدء التسجيل». Only at that moment is the private log directory/file created. The first successful regular refresh after starting becomes the first checkpoint; a pre-existing cached GTK snapshot is not relabeled as a new observation.
 3. While the window is open, the existing 12-second refresh provides observations; the recorder saves only changes and periodic checkpoints. A recording status label is visible in the fixed footer.
 4. Click «إيقاف التسجيل»; inspect the local JSONL file after «اكتمل حفظ السجل». Closing the window requests a graceful stop. A non-daemon writer finishes flushing before the process exits; it does not keep a GTK window or daemon running.
 5. Export or analyze the JSONL locally, without uploading it. The file path appears in a tooltip for the status label.
