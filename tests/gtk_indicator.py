@@ -15,7 +15,7 @@ def fixture():
 
 def main():
     states = [dcc_indicator.IndicatorState(True, True, True),
-              dcc_indicator.IndicatorState(True, True, True)]
+              dcc_indicator.IndicatorState(True, False, False)]
     calls = []
     def read_state():
         calls.append("read")
