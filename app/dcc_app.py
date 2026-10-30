@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 from pathlib import Path
@@ -16,12 +17,12 @@ from gi.repository import GLib  # noqa: E402
 # program name before importing GTK so Python's filename isn't used.
 APP_ID = "device-control-center"
 GLib.set_prgname(APP_ID)
-from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 Gdk.set_program_class(APP_ID)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dcc_core as core  # noqa: E402
-from dcc_diagnostics import SessionRecorder  # noqa: E402
+from dcc_diagnostics import SessionRecorder, prepare_reports_directory  # noqa: E402
 
 
 CSS = b"""
@@ -37,6 +38,11 @@ CSS = b"""
 .dcc-window progressbar trough { min-height: 9px; border-radius: 5px; }
 .dcc-window progressbar progress { min-height: 9px; border-radius: 5px; }
 """
+
+
+def launch_local_folder(directory: Path):
+    """Ask Ubuntu's default file manager to open the local report folder."""
+    return Gio.AppInfo.launch_default_for_uri(directory.as_uri(), None)
 
 
 def isolate(text):
@@ -242,7 +248,15 @@ class DccWindow(Gtk.Window):
         self.export_button.set_margin_end(12)
         self.export_button.set_margin_top(6)
         self.export_button.set_tooltip_text("حفظ محلي فقط؛ قد يتضمن التقرير عناوين الأجهزة وأسماء الشبكات")
-        footer.pack_start(self.export_button, False, False, 0)
+        export_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        export_actions.set_margin_start(12)
+        export_actions.set_margin_end(12)
+        export_actions.pack_start(self.export_button, True, True, 0)
+        self.reports_button = button("فتح مجلد التقارير", lambda _: self.open_reports_folder())
+        self.reports_button.set_tooltip_text(
+            "فتح مجلد المستندات الذي يجمع تقارير JSON وسجلات JSONL، مع صلاحيات خاصة")
+        export_actions.pack_start(self.reports_button, False, False, 0)
+        footer.pack_start(export_actions, False, False, 0)
         duration_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         duration_row.set_margin_start(12)
         duration_row.set_margin_end(12)
@@ -671,21 +685,47 @@ class DccWindow(Gtk.Window):
         dialog.run()
         dialog.destroy()
 
+    def open_reports_folder(self):
+        try:
+            folder = prepare_reports_directory()
+            launch_local_folder(folder)
+        except (OSError, GLib.Error) as exc:
+            self._dialog("تعذّر فتح مجلد التقارير", str(exc))
+
     def export_report(self):
         if self.data is None:
             self._dialog("لا توجد بيانات", "انتظر اكتمال القراءة الأولى ثم جرّب مجددًا.")
+            return
+        try:
+            folder = prepare_reports_directory()
+        except OSError as exc:
+            self._dialog("تعذّر إعداد مجلد التقارير", str(exc))
             return
         dialog = Gtk.FileChooserDialog(title="حفظ تقرير الأجهزة", transient_for=self,
                                         action=Gtk.FileChooserAction.SAVE)
         dialog.add_buttons("إلغاء", Gtk.ResponseType.CANCEL, "حفظ", Gtk.ResponseType.OK)
         dialog.set_do_overwrite_confirmation(True)
-        dialog.set_current_name("device-control-report.json")
+        dialog.set_current_folder(str(folder))
+        dialog.set_current_name(
+            "device-control-report-" + GLib.DateTime.new_now_local().format("%Y%m%d-%H%M%S") + ".json")
         try:
             if dialog.run() == Gtk.ResponseType.OK:
                 path = dialog.get_filename()
                 try:
-                    with open(path, "w", encoding="utf-8") as file:
-                        json.dump({"schema_version": 1, **self.data}, file, ensure_ascii=False, indent=2)
+                    # The standard JSON report contains MACs/SSIDs; newly saved
+                    # reports must be private too (the chooser still allows a
+                    # different destination explicitly selected by the user).
+                    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+                    fd = os.open(path, flags, 0o600)
+                    try:
+                        os.fchmod(fd, 0o600)
+                        with os.fdopen(fd, "w", encoding="utf-8") as file:
+                            fd = -1
+                            json.dump({"schema_version": 1, **self.data},
+                                      file, ensure_ascii=False, indent=2)
+                    finally:
+                        if fd != -1:
+                            os.close(fd)
                     self.status.set_text("تم حفظ التقرير محليًا: " + path)
                 except OSError as exc:
                     self._dialog("فشل حفظ الملف", str(exc))

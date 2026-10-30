@@ -8,7 +8,7 @@ trap 'rm -rf "$PKG_DIR"' EXIT
 mkdir -p "$PKG_DIR/DEBIAN" "$PKG_DIR/usr/bin" "$PKG_DIR/usr/lib/device-control-center" "$PKG_DIR/usr/share/applications" "$PKG_DIR/usr/share/icons/hicolor/scalable/apps" "$PKG_DIR/usr/share/doc/device-control-center"
 cat > "$PKG_DIR/DEBIAN/control" <<'CONTROL'
 Package: device-control-center
-Version: 0.1.12
+Version: 0.1.13
 Section: utils
 Priority: optional
 Architecture: all

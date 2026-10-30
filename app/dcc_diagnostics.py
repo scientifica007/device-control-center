@@ -10,6 +10,7 @@ import os
 import queue
 import re
 import stat
+import subprocess
 import threading
 import time
 import uuid
@@ -32,6 +33,32 @@ def state_directory():
     base = os.environ.get("XDG_STATE_HOME")
     root = Path(base) if base and Path(base).is_absolute() else Path.home() / ".local" / "state"
     return root / "device-control-center" / "diagnostics"
+
+
+def reports_directory():
+    """Visible shared folder for JSON exports and JSONL diagnostics.
+
+    Respect XDG user-dirs so a localized Ubuntu desktop can use its actual
+    Documents folder. Fall back to ~/Documents without a network lookup.
+    No directory is created merely by determining its path.
+    """
+    home = Path.home()
+    try:
+        command = subprocess.run(
+            ["xdg-user-dir", "DOCUMENTS"], check=False, capture_output=True,
+            text=True, timeout=2)
+        resolved = Path(command.stdout.strip())
+        documents = resolved if command.returncode == 0 and resolved.is_absolute() and resolved != home else home / "Documents"
+    except (OSError, subprocess.TimeoutExpired):
+        documents = home / "Documents"
+    return documents / "Device-Control-Center" / "Reports"
+
+
+def prepare_reports_directory():
+    """Make the visible shared folder private and ready for a file manager."""
+    directory = reports_directory()
+    _private_directory(directory)
+    return directory
 
 
 def _private_directory(path):
@@ -151,11 +178,15 @@ class _Projector:
         else:
             signal = _percent(wifi.get("signal"))
             freq = wifi.get("freq")
+            # NetworkManager often reports a human-readable "2447 MHz".
+            # Never infer frequency from the Wi-Fi strength or network name.
+            match = re.fullmatch(r"\s*([0-9]{4,5})(?:\s*MHz)?\s*", str(freq), re.I)
+            mhz = int(match.group(1)) if match else None
             network = {"status": "error" if wifi.get("error") else "available",
                        "connection": "unknown" if wifi.get("error") else ("connected" if wifi.get("connected") else "disconnected"),
                        "signal": {"status": "error" if wifi.get("error") else ("available" if signal is not None else "unavailable"),
                                   "value": signal, "unit": "percent"},
-                       "frequency_mhz": int(freq) if isinstance(freq, str) and freq.isdecimal() and 1000 <= int(freq) <= 10000 else None}
+                       "frequency_mhz": mhz if mhz is not None and 1000 <= mhz <= 10000 else None}
         return {"bluetooth": bluetooth, "audio": sound, "wifi": network}
 
 
@@ -191,7 +222,7 @@ class SessionRecorder:
             not 0 < duration_seconds <= 24 * 3600
         ):
             raise ValueError("مدة التسجيل يجب أن تكون بين ثانية و24 ساعة")
-        self.directory = Path(directory) if directory is not None else state_directory()
+        self.directory = Path(directory) if directory is not None else reports_directory()
         self.checkpoint_seconds = checkpoint_seconds
         self.max_bytes = max_bytes
         self.duration_seconds = duration_seconds
