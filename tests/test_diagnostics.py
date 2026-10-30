@@ -144,5 +144,71 @@ class DiagnosticsTests(unittest.TestCase):
             self.assertFalse(stale.exists())
 
 
+    def test_duration_stops_without_new_device_snapshots(self):
+        """The recorder must enforce the limit even if GTK refresh fails or stops."""
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder = SessionRecorder(Path(tmp) / "dcc" / "diagnostics",
+                                       duration_seconds=0.25)
+            self.assertEqual(recorder.elapsed_seconds, 0)
+            recorder.start()
+            recorder.record(snapshot())
+            recorder.join(4)
+            self.assertEqual(recorder.status, "stopped", recorder.error)
+            self.assertEqual(recorder.stop_reason, "duration_elapsed")
+            self.assertAlmostEqual(recorder.elapsed_seconds, 0.25, places=2)
+            rows = [json.loads(x) for x in recorder.path.read_text().splitlines()]
+            self.assertEqual(rows[0]["duration_seconds"], 0.25)
+            self.assertEqual(rows[-1]["type"], "session_end")
+            self.assertEqual(rows[-1]["reason"], "duration_elapsed")
+            before = recorder.path.read_bytes()
+            recorder.record(snapshot(battery=10))
+            recorder.read_error()
+            self.assertEqual(recorder.path.read_bytes(), before)
+            stopped_at = recorder.elapsed_seconds
+            time.sleep(0.06)
+            self.assertEqual(recorder.elapsed_seconds, stopped_at)
+
+    def test_manual_stop_precedes_scheduled_deadline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder = SessionRecorder(Path(tmp) / "dcc" / "diagnostics",
+                                       duration_seconds=120)
+            recorder.start()
+            recorder.record(snapshot())
+            recorder.stop()
+            recorder.join(5)
+            self.assertEqual(recorder.status, "stopped", recorder.error)
+            self.assertEqual(recorder.stop_reason, "manual")
+            lines = [json.loads(x) for x in recorder.path.read_text().splitlines()]
+            self.assertEqual(lines[-1]["reason"], "manual")
+            self.assertGreaterEqual(recorder.elapsed_seconds, 0)
+            self.assertLess(recorder.elapsed_seconds, 120)
+
+    def test_unlimited_duration_does_not_autostop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder = SessionRecorder(Path(tmp) / "dcc" / "diagnostics")
+            recorder.start()
+            time.sleep(0.15)
+            self.assertEqual(recorder.status, "recording", recorder.error)
+            recorder.stop()
+            recorder.join(5)
+            self.assertEqual(recorder.status, "stopped")
+
+    def test_invalid_duration_is_rejected(self):
+        for invalid in (0, -1, 86401, True, float("inf"), float("nan"), "60"):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    SessionRecorder(duration_seconds=invalid)
+
+    def test_window_close_reason_is_distinct_from_manual_stop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder = SessionRecorder(Path(tmp) / "dcc" / "diagnostics",
+                                       duration_seconds=60)
+            recorder.start()
+            recorder.stop(reason="window_closed")
+            recorder.join(5)
+            lines = [json.loads(x) for x in recorder.path.read_text().splitlines()]
+            self.assertEqual(lines[-1]["reason"], "window_closed")
+
+
 if __name__ == "__main__":
     unittest.main()
