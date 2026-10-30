@@ -39,6 +39,7 @@ def main():
                 window.record_button.clicked()
                 wait(lambda: window.recorder.status == "recording")
                 assert "التسجيل" in window.record_button.get_label()
+                window._updated(fixture(100), None)
                 window._updated(fixture(90), None)
                 window.record_button.clicked()
                 wait(lambda: window.recorder.status == "stopped")
