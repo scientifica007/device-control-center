@@ -23,6 +23,7 @@ Gdk.set_program_class(APP_ID)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dcc_core as core  # noqa: E402
 from dcc_diagnostics import SessionRecorder, prepare_reports_directory  # noqa: E402
+import dcc_indicator as indicator_control  # noqa: E402
 
 
 CSS = b"""
@@ -170,6 +171,8 @@ class DccWindow(Gtk.Window):
         self._volume_timer = {"out": None, "in": None}
         self._action_running = False
         self.recorder = None  # No disk activity or recorder before explicit opt-in.
+        self._indicator_busy = False
+        self._indicator_state = None
 
         Gtk.Widget.set_default_direction(Gtk.TextDirection.RTL)
         provider = Gtk.CssProvider()
@@ -240,6 +243,30 @@ class DccWindow(Gtk.Window):
         self.wifi_info.set_margin_end(8)
         wifi_frame.add(self.wifi_info)
 
+        # GNOME panel extension is independent from both GTK and the Bluetooth
+        # radio. Its state is queried only at startup and on explicit request.
+        body.pack_start(label("مؤشر بطارية Bluetooth في الشريط العلوي",
+                              "dcc-subheading"), False, False, 0)
+        indicator_frame = Gtk.Frame()
+        indicator_frame.get_style_context().add_class("dcc-card")
+        body.pack_start(indicator_frame, False, False, 0)
+        indicator_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        indicator_content.set_border_width(12)
+        indicator_frame.add(indicator_content)
+        indicator_content.pack_start(label(
+            "إظهار أو إخفاء مؤشر Device Control Center (رمز Bluetooth ونسبة البطارية). "
+            "لا يوقف هذا الزر Bluetooth ولا يؤثر على اتصال السماعة أو مؤشرات GNOME الأصلية.",
+            "dcc-muted"), False, False, 0)
+        self.indicator_status = label("جارٍ فحص حالة المؤشر…", "dcc-muted")
+        indicator_content.pack_start(self.indicator_status, False, False, 0)
+        indicator_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        indicator_content.pack_start(indicator_actions, False, False, 0)
+        self.indicator_toggle = button("إظهار المؤشر", lambda _: self.toggle_panel_indicator(),
+                                       sensitive=False)
+        self.indicator_refresh = button("تحديث حالة المؤشر", lambda _: self.refresh_panel_indicator())
+        indicator_actions.pack_start(self.indicator_toggle, False, False, 0)
+        indicator_actions.pack_start(self.indicator_refresh, False, False, 0)
+
         # Persistent actions never depend on the height of the scroll content.
         footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         footer.pack_start(Gtk.Separator(), False, False, 0)
@@ -291,6 +318,70 @@ class DccWindow(Gtk.Window):
         GLib.idle_add(self.refresh)
         self._refresh_timer = GLib.timeout_add_seconds(12, self._auto_refresh)
         self._record_ui_timer = GLib.timeout_add_seconds(1, self._update_record_ui)
+        GLib.idle_add(self.refresh_panel_indicator)
+
+    def refresh_panel_indicator(self):
+        if self._closed or self._indicator_busy:
+            return False
+        self._indicator_busy = True
+        self.indicator_toggle.set_sensitive(False)
+        self.indicator_refresh.set_sensitive(False)
+        self.indicator_status.set_text("جارٍ قراءة حالة المؤشر من GNOME…")
+
+        def worker():
+            try:
+                state = indicator_control.read_indicator_state()
+                GLib.idle_add(self._indicator_done, state, None)
+            except indicator_control.IndicatorUnavailable as exc:
+                GLib.idle_add(self._indicator_done, None, str(exc))
+        threading.Thread(target=worker, daemon=True).start()
+        return False
+
+    def toggle_panel_indicator(self):
+        state = self._indicator_state
+        if self._closed or self._indicator_busy or state is None or not state.installed:
+            return
+        enabled = not state.enabled
+        self._indicator_busy = True
+        self.indicator_toggle.set_sensitive(False)
+        self.indicator_refresh.set_sensitive(False)
+        self.indicator_status.set_text("جارٍ تعديل حالة مؤشر الشريط العلوي…")
+
+        def worker():
+            try:
+                new_state = indicator_control.set_indicator_enabled(enabled)
+                GLib.idle_add(self._indicator_done, new_state, None)
+            except indicator_control.IndicatorUnavailable as exc:
+                GLib.idle_add(self._indicator_done, None, str(exc))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _indicator_done(self, state, error):
+        if self._closed:
+            return False
+        self._indicator_busy = False
+        self.indicator_refresh.set_sensitive(True)
+        self._indicator_state = state
+        if error:
+            self.indicator_status.set_text("حالة المؤشر غير مؤكدة: " + error)
+            self.indicator_toggle.set_sensitive(False)
+        elif not state.installed:
+            self.indicator_status.set_text("الامتداد غير مثبت؛ لا يمكن إظهار المؤشر من هذا الزر.")
+            self.indicator_toggle.set_sensitive(False)
+        else:
+            self.indicator_toggle.set_sensitive(True)
+            self.indicator_toggle.set_label(
+                "إخفاء المؤشر" if state.enabled else "إظهار المؤشر")
+            if state.enabled and state.active is True:
+                description = "المؤشر مفعّل ويعمل في GNOME"
+            elif state.enabled and state.active is False:
+                description = ("الامتداد مفعّل، لكن المؤشر ليس نشطًا حاليًا في GNOME. "
+                               "قد يلزم التحقق من حالة الامتداد أو إعادة تسجيل الدخول.")
+            elif state.enabled:
+                description = "الامتداد مفعّل، لكن التحقق من ظهوره الفعلي غير متاح."
+            else:
+                description = "مؤشر Device Control Center معطّل (Bluetooth يعمل بصورة مستقلة)."
+            self.indicator_status.set_text(description)
+        return False
 
     def toggle_recording(self):
         recorder = self.recorder
