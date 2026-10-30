@@ -60,3 +60,13 @@ The GTK footer adds a numeric minutes selector (0 = no duration, 1..1440 = 1 min
 The independent JSONL writer enforces the deadline using time.monotonic() even without new snapshots or GTK ticks. Its queue wait is bounded by the remaining duration. A manual Stop remains effective before the deadline. Session start records duration_seconds or null; successful session end records reason = manual, duration_elapsed, or window_closed. This is an additive schema v1 change and preserves previous JSONL fields. It does not schedule future session starts, systemd units or recordings while the GTK process is closed.
 
 Timing is local monotonic elapsed time; the timestamp in an observation remains the time the app sampled it, not the headset measurement time. Timer display granularity is 1 second, and writer scheduling and flush have ordinary OS latency. A failed I/O operation or forced termination cannot guarantee session_end. GTK scrollbar and audio device settings remain untouched.
+
+## v0.1.13 — Visible shared report folder
+
+New diagnostic JSONL sessions use the XDG Documents user directory as determined by `xdg-user-dir DOCUMENTS` (fallback `~/Documents`), inside `Device-Control-Center/Reports`. This location is shared with the *default* save directory for regular JSON snapshots. A single **Open Reports Folder** button launches the local folder through the desktop's file-manager handler. The button and the save dialog may create the folder; computing the path alone does not.
+
+The managed `Device-Control-Center` and `Reports` directories must be privately owned and mode 0700; new JSONL and JSON files are mode 0600. The snapshots remain sensitive and are not sanitized: MAC/SSID may be present, so do not upload them publicly. User-selected JSON save paths can differ from the default Reports directory; the folder button always opens the common default directory. External tools may sync the user's Documents directory; DCC never uploads reports.
+
+Old JSONL files already saved in `~/.local/state/device-control-center/diagnostics` are **not migrated** or deleted. The previous seven-day cleanup and size budgets apply to newly created JSONL files in the Reports directory only; ordinary JSON snapshots are not part of JSONL retention cleanup. Preserve the same opt-in, bounded writer and fail-closed semantics.
+
+Wi-Fi frequency from the underlying NetworkManager output can contain a numeric MHz suffix (for example `2447 MHz`). Parse that representation into frequency_mhz without guessing or mixing it with Wi-Fi signal strength. Historical log files are never rewritten.
