@@ -269,8 +269,7 @@ class DccWindow(Gtk.Window):
         elif recorder is None or recorder.status in ("stopped", "error"):
             self.recorder = SessionRecorder()
             self.recorder.start()
-            if self.data is not None:
-                self.recorder.record(self.data)
+            # First observation comes from the next normal refresh, not cached UI state.
         self._update_record_ui()
 
     def _update_record_ui(self):
