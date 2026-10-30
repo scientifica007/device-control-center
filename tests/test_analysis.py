@@ -175,5 +175,36 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("&lt;script&gt;", html)
 
 
+    def test_plot_thinning_keeps_hidden_peaks(self):
+        from dcc_analysis import _series_points
+        samples = [(START + timedelta(seconds=i), 50) for i in range(2000)]
+        samples[333] = (samples[333][0], 1)
+        samples[1744] = (samples[1744][0], 99)
+        reduced = _series_points(samples)
+        self.assertLessEqual(len(reduced), 250)
+        self.assertEqual(reduced[0], samples[0])
+        self.assertEqual(reduced[-1], samples[-1])
+        self.assertEqual(min(value for _, value in reduced), 1)
+        self.assertEqual(max(value for _, value in reduced), 99)
+
+    def test_malformed_field_types_rejected_without_type_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "strange.jsonl"
+            for records in (
+                [dict(fixture()[0], type={"unexpected": 1})],
+                [fixture()[0], row("read_error", 2, category=["private", "data"])],
+                [fixture()[0], row("state_change", 2, category={"not": "a category"}, field="signal")],
+                [fixture()[0], row("state_change", 2, category="wifi", field=["signal"])],
+            ):
+                with self.subTest(last=records[-1]):
+                    write_rows(p, records)
+                    if records[-1]["type"] == "state_change" or records[-1]["type"] == "read_error":
+                        result = analyse_file(p)
+                        self.assertTrue(result["counts"]["events_by_category"] or result["counts"]["read_errors"])
+                    else:
+                        with self.assertRaises(AnalysisError):
+                            analyse_file(p)
+
+
 if __name__ == "__main__":
     unittest.main()
