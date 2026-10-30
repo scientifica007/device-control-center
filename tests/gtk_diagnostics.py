@@ -3,9 +3,9 @@ import json
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
+from gtk_layout import DccWindow, core, pump, wait
 import dcc_app
 from dcc_diagnostics import SessionRecorder
-from gtk_layout import DccWindow, core, pump, wait
 
 
 def fixture(percent):
