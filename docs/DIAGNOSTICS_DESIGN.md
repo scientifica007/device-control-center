@@ -70,3 +70,13 @@ The managed `Device-Control-Center` and `Reports` directories must be privately 
 Old JSONL files already saved in `~/.local/state/device-control-center/diagnostics` are **not migrated** or deleted. The previous seven-day cleanup and size budgets apply to newly created JSONL files in the Reports directory only; ordinary JSON snapshots are not part of JSONL retention cleanup. Preserve the same opt-in, bounded writer and fail-closed semantics.
 
 Wi-Fi frequency from the underlying NetworkManager output can contain a numeric MHz suffix (for example `2447 MHz`). Parse that representation into frequency_mhz without guessing or mixing it with Wi-Fi signal strength. Historical log files are never rewritten.
+
+## v0.1.15 — Local diagnostic analysis
+
+The new optional `dcc_analysis.py` parses exactly one schema-v1 JSONL session. It is independent of GTK, BlueZ, audio and Wi-Fi. It validates monotonic timestamp order and session ID consistency, rejects nonregular input/symlinks and oversized or malformed files, and **does not rewrite source logs**.
+
+Outputs are owner-private JSON and static Arabic HTML/SVG in the existing shared Reports folder. They contain counts by category/field, observed battery ranges per session-local pseudonym, observed A2DP codec/profile values, Wi-Fi percentages and warnings for missing checkpoints, read errors or incomplete sessions. Data-driven HTML uses strict escaping, a restrictive no-network Content-Security-Policy and no JavaScript. Device names, MAC, SSID, raw stderr and unknown text fields are excluded by allowlists.
+
+For Wi-Fi, the mean is explicitly over samples present in change events/checkpoints, not a time-weighted signal strength. Changes reflect discrete **observations**, not precise source-event times; an unchanged value between checkpoints cannot be assumed continuously measured. Only an actual `session_end` establishes a completed recording. If no end record is present, duration is unreported rather than fabricated.
+
+The GTK screen has an explicit Open JSONL chooser, an async analyzer worker, and an optional button to open the resulting local HTML. It does not modify devices or trigger additional polling; no automatic upload or analysis. CLI execution is also available for local/offline batch use. Separate acceptance on Ubuntu Wayland remains necessary.
