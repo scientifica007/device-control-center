@@ -43,21 +43,38 @@ def main():
                 assert stat.S_IMODE(reports.stat().st_mode) == 0o700
 
                 selected = []
+                chooser_errors = []
+                attempts = [0]
 
                 def save_report_in_default():
+                    attempts[0] += 1
                     for dialog in Gtk.Window.list_toplevels():
                         if isinstance(dialog, Gtk.FileChooserDialog) and dialog.get_mapped():
-                            assert Path(dialog.get_current_folder()) == reports
-                            filename = Path(dialog.get_filename())
-                            assert filename.parent == reports
-                            assert filename.name.startswith("device-control-report-")
-                            selected.append(filename)
-                            dialog.response(Gtk.ResponseType.OK)
+                            try:
+                                current = dialog.get_current_folder()
+                                filename = dialog.get_filename()
+                                assert current is not None and Path(current) == reports, current
+                                assert filename is not None, "No default report filename"
+                                path = Path(filename)
+                                assert path.parent == reports, path
+                                assert path.name.startswith("device-control-report-"), path.name
+                                selected.append(path)
+                                dialog.response(Gtk.ResponseType.OK)
+                            except Exception as exc:
+                                chooser_errors.append(repr(exc))
+                                dialog.response(Gtk.ResponseType.CANCEL)
                             return False
+                    if attempts[0] >= 100:
+                        chooser_errors.append("Timed out waiting for GTK file chooser")
+                        for dialog in Gtk.Window.list_toplevels():
+                            if isinstance(dialog, Gtk.FileChooserDialog):
+                                dialog.response(Gtk.ResponseType.CANCEL)
+                        return False
                     return True
 
                 GLib.timeout_add(40, save_report_in_default)
                 win.export_button.clicked()
+                assert not chooser_errors, chooser_errors
                 assert len(selected) == 1
                 saved = selected[0]
                 assert saved.is_file()
