@@ -8,7 +8,7 @@ trap 'rm -rf "$PKG_DIR"' EXIT
 mkdir -p "$PKG_DIR/DEBIAN" "$PKG_DIR/usr/bin" "$PKG_DIR/usr/lib/device-control-center" "$PKG_DIR/usr/share/applications" "$PKG_DIR/usr/share/icons/hicolor/scalable/apps" "$PKG_DIR/usr/share/doc/device-control-center"
 cat > "$PKG_DIR/DEBIAN/control" <<'CONTROL'
 Package: device-control-center
-Version: 0.1.14
+Version: 0.1.15
 Section: utils
 Priority: optional
 Architecture: all
@@ -23,6 +23,7 @@ install -m 0644 "$ROOT/app/dcc_core.py" "$PKG_DIR/usr/lib/device-control-center/
 install -m 0644 "$ROOT/app/dcc_app.py" "$PKG_DIR/usr/lib/device-control-center/dcc_app.py"
 install -m 0644 "$ROOT/app/dcc_diagnostics.py" "$PKG_DIR/usr/lib/device-control-center/dcc_diagnostics.py"
 install -m 0644 "$ROOT/app/dcc_indicator.py" "$PKG_DIR/usr/lib/device-control-center/dcc_indicator.py"
+install -m 0644 "$ROOT/app/dcc_analysis.py" "$PKG_DIR/usr/lib/device-control-center/dcc_analysis.py"
 cat > "$PKG_DIR/usr/bin/device-control-center" <<'LAUNCH'
 #!/bin/sh
 exec /usr/bin/python3 /usr/lib/device-control-center/dcc_app.py "$@"
