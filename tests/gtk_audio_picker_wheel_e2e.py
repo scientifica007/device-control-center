@@ -16,7 +16,7 @@ def wheel_at(picker, window, direction="5"):
     x, y = picker.translate_coordinates(
         window, picker.get_allocated_width() // 2,
         picker.get_allocated_height() // 2)
-    subprocess.run(["xdotool", "mousemove", "--sync",
+    # --sync may hang in Xvfb if the pointer is already at the target.\n    # The following click still travels through real XTEST/Gdk routing.\n    subprocess.run(["xdotool", "mousemove",
                     str(origin_x + x), str(origin_y + y),
                     "click", "--clearmodifiers", direction],
                    check=True, timeout=5)
