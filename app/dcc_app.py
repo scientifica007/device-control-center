@@ -284,7 +284,7 @@ class DccWindow(Gtk.Window):
             "recording": ("إيقاف التسجيل", "التسجيل جارٍ محليًا"),
             "stopping": ("إيقاف التسجيل", "جارٍ إنهاء السجل…"),
             "stopped": ("بدء التسجيل", "اكتمل حفظ السجل"),
-            "error": ("بدء التسجيل", "توقف التسجيل: " + (recorder.error or "خطأ غير معروف")),
+            "error": ("بدء التسجيل", "توقف التسجيل: " + ((recorder.error if recorder is not None else None) or "خطأ غير معروف")),
         }
         button_text, status_text = labels.get(current, labels["inactive"])
         self.record_button.set_label(button_text)
