@@ -5,9 +5,9 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+from gtk_layout import DccWindow, Gtk, GLib, core, pump, wait
 import dcc_app
 import dcc_diagnostics
-from gtk_layout import DccWindow, Gtk, GLib, core, pump, wait
 
 
 def fixture():
