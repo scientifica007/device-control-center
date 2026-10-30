@@ -163,7 +163,7 @@ class AnalysisTests(unittest.TestCase):
                 analyse_file(p)
 
     def test_html_escapes_untrusted_interpretation_if_ever_supplied(self):
-        result = {"session":{"duration_seconds":None},
+        result = {"session":{"duration_seconds":None, "start_utc":"2026-10-30T00:00:00+00:00", "end_utc":None},
                   "counts":{"records":1,"types":{},"events_by_category":{"<script>":1}},
                   "wifi":{"min_percent":None,"max_percent":None,"mean_observed_percent":None},
                   "audio":{"observed_profiles":[]},
