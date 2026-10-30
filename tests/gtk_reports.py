@@ -53,8 +53,13 @@ def main():
                             try:
                                 current = dialog.get_current_folder()
                                 filename = dialog.get_filename()
-                                assert current is not None and Path(current) == reports, current
-                                assert filename is not None, "No default report filename"
+                                if current is None or filename is None:
+                                    if attempts[0] < 100:
+                                        return True  # GTK folder resolution can be asynchronous.
+                                    raise AssertionError(
+                                        f"chooser did not resolve: current={current!r}, filename={filename!r}, "
+                                        f"name={dialog.get_current_name()!r}")
+                                assert Path(current) == reports, f"{current!r} != {str(reports)!r}"
                                 path = Path(filename)
                                 assert path.parent == reports, path
                                 assert path.name.startswith("device-control-report-"), path.name
