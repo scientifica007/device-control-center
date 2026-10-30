@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
-from dcc_diagnostics import SessionRecorder, _Projector, _changes, state_directory
+from dcc_diagnostics import SessionRecorder, _Projector, _changes, state_directory, reports_directory, prepare_reports_directory
 
 
 MAC = "02:00:00:00:00:01"  # synthetic identifier: never written to logs
@@ -208,6 +208,53 @@ class DiagnosticsTests(unittest.TestCase):
             recorder.join(5)
             lines = [json.loads(x) for x in recorder.path.read_text().splitlines()]
             self.assertEqual(lines[-1]["reason"], "window_closed")
+
+
+    def test_visible_documents_directory_from_xdg_user_dirs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            documents = Path(temp) / "المستندات"
+            with patch("dcc_diagnostics.subprocess.run") as xdg:
+                xdg.return_value.stdout = str(documents) + "\n"
+                xdg.return_value.returncode = 0
+                target = reports_directory()
+                self.assertEqual(target, documents / "Device-Control-Center" / "Reports")
+                self.assertFalse(target.exists())
+                created = prepare_reports_directory()
+                self.assertEqual(created, target)
+                self.assertEqual(stat.S_IMODE(created.stat().st_mode), 0o700)
+                self.assertEqual(stat.S_IMODE(created.parent.stat().st_mode), 0o700)
+
+    def test_xdg_documents_fallback(self):
+        with tempfile.TemporaryDirectory() as temp, patch("dcc_diagnostics.subprocess.run", side_effect=FileNotFoundError):
+            with patch("dcc_diagnostics.Path.home", return_value=Path(temp)):
+                self.assertEqual(reports_directory(), Path(temp) / "Documents" / "Device-Control-Center" / "Reports")
+
+    def test_recorder_default_path_uses_visible_reports_folder(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "Documents" / "Device-Control-Center" / "Reports"
+            with patch("dcc_diagnostics.reports_directory", return_value=path):
+                recorder = SessionRecorder()
+                self.assertEqual(recorder.directory, path)
+                self.assertFalse(path.exists())
+                recorder.start()
+                recorder.record(snapshot())
+                recorder.stop()
+                recorder.join(5)
+                self.assertEqual(recorder.status, "stopped", recorder.error)
+                self.assertEqual(recorder.path.parent, path)
+                self.assertEqual(stat.S_IMODE(recorder.path.stat().st_mode), 0o600)
+
+    def test_wifi_mhz_from_observed_report(self):
+        p = _Projector()
+        for value in ("2447 MHz", "2447", " 2447 MHz ", "2412"):
+            sample = snapshot()
+            sample["wifi"]["freq"] = value
+            out = p.snapshot(sample)
+            self.assertEqual(out["wifi"]["frequency_mhz"], int(value.split()[0]))
+        for value in (None, "", "2.4GHz", "private-network", "-1", "99999 MHz"):
+            sample = snapshot()
+            sample["wifi"]["freq"] = value
+            self.assertIsNone(p.snapshot(sample)["wifi"]["frequency_mhz"])
 
 
 if __name__ == "__main__":
