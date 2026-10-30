@@ -116,13 +116,13 @@ def analyse_file(path):
             if not line.strip():
                 raise AnalysisError("سطر فارغ في ملف JSONL")
             try:
-                row = json.loads(line)
-            except (json.JSONDecodeError, UnicodeError) as exc:
+                row = json.loads(line, parse_constant=lambda _: (_ for _ in ()).throw(ValueError("non-JSON number")))
+            except (json.JSONDecodeError, UnicodeError, ValueError) as exc:
                 raise AnalysisError("ملف JSONL يحتوي سطرًا غير صالح") from exc
-            if not isinstance(row, dict) or row.get("schema_version") != 1:
+            if not isinstance(row, dict) or type(row.get("schema_version")) is not int or row.get("schema_version") != 1:
                 raise AnalysisError("إصدار مخطط التسجيل غير مدعوم")
             kind = row.get("type")
-            if kind not in KINDS:
+            if not isinstance(kind, str) or kind not in KINDS:
                 raise AnalysisError("نوع سجل غير معروف")
             sid = row.get("session_id")
             if not isinstance(sid, str) or not re.fullmatch(r"[a-f0-9]{32}", sid):
@@ -154,7 +154,7 @@ def analyse_file(path):
                 continue
             if kind == "read_error":
                 category = row.get("category")
-                errors[category if category in CATEGORIES else "unknown"] += 1
+                errors[category if isinstance(category, str) and category in CATEGORIES else "unknown"] += 1
                 continue
             if kind == "checkpoint":
                 checkpoints += 1
@@ -187,7 +187,8 @@ def analyse_file(path):
                                 profiles.add((profile["profile"], profile["codec"], profile["mode"]))
                 continue
             category, field = row.get("category"), row.get("field")
-            if category not in FIELDS or field not in FIELDS[category]:
+            if (not isinstance(category, str) or category not in FIELDS or
+                    not isinstance(field, str) or field not in FIELDS[category]):
                 # Unknown fields are counted, not echoed or treated as measurements.
                 categories["unknown"] += 1
                 continue
@@ -302,7 +303,7 @@ def render_html(result):
                     ' — ' + escape(p["profile"]) + '</li>' for p in result["audio"]["observed_profiles"])
     cautions = "".join('<li>' + escape(x) + '</li>' for x in result["warnings"] + result["interpretation"])
     graphs = [_graph(result["timeline"]["wifi"], "إشارة Wi-Fi (%)",
-                     "كل نقطة: ملاحظة من حدث تغير أو نقطة تحقق؛ المتوسط غير موزون زمنيًا.")]
+                     "كل نقطة: ملاحظة من حدث تغير أو نقطة تحقق؛ المتوسط غير موزون زمنيًا. وصل النقاط بصري فقط وليس قياسًا مستمرًا.")]
     for device, series in list(result["timeline"]["battery"].items())[:4]:
         graphs.append(_graph(series, "بطارية " + device + " وفق المصدر (%)",
                              "النسبة المبلّغ عنها؛ وقت قياس الجهاز الأصلي غير معروف."))
@@ -324,6 +325,8 @@ h1,h2,h3{color:#213955}.grid{display:grid;grid-template-columns:repeat(auto-fit,
 <div class="card"><div>عدد السجلات</div><div class="big">''' + str(counts["records"]) + '''</div></div>
 <div class="card"><div>أحداث التغير</div><div class="big">''' + str(counts["types"].get("state_change", 0)) + '''</div></div>
 <div class="card"><div>أخطاء القراءة</div><div class="big">''' + str(counts["types"].get("read_error", 0)) + '''</div></div></div>
+<p>بداية الرصد (UTC): <b>''' + escape(session["start_utc"]) + '''</b>.
+نهاية الجلسة (UTC): <b>''' + escape(session["end_utc"] or "غير مثبتة في الملف") + '''</b>.</p>
 <h2>توزيع الأحداث</h2><table><thead><tr><th>الفئة</th><th>العدد</th></tr></thead><tbody>''' + rows + '''</tbody></table>
 <h2>إشارة Wi-Fi</h2><p>المدى: ''' + escape(str(wifi["min_percent"])) + '% – ' + escape(str(wifi["max_percent"])) + '''%.
 المتوسط الحسابي للقراءات المسجلة: ''' + escape(str(wifi["mean_observed_percent"])) + '''%،
