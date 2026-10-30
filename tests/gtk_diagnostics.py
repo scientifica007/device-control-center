@@ -24,8 +24,12 @@ def fixture(percent):
 def main():
     with tempfile.TemporaryDirectory() as temp:
         folder = Path(temp) / "dcc" / "diagnostics"
-        def recorder_factory():
-            return SessionRecorder(folder, checkpoint_seconds=0)
+        requested_durations = []
+        def recorder_factory(duration_seconds=None):
+            requested_durations.append(duration_seconds)
+            # Scale the finite session for quick, deterministic Xvfb testing.
+            duration = 0.25 if duration_seconds is not None else None
+            return SessionRecorder(folder, checkpoint_seconds=0, duration_seconds=duration)
         with patch.object(core, "snapshot", return_value=fixture(100)), \
                 patch.object(core, "set_volume") as volume, \
                 patch.object(core, "set_default_audio") as select, \
@@ -52,6 +56,21 @@ def main():
                 assert rows[-1]["type"] == "session_end"
                 assert any(row.get("field") == "battery" and
                            row["current"]["value"] == 90 for row in rows)
+                assert requested_durations == [None]
+                wait(lambda: window.record_minutes.get_sensitive())
+                assert window._format_duration(65) == "01:05"
+                assert window._format_duration(3661) == "01:01:01"
+                # A 1-minute choice must reach the backend as 60 seconds.
+                window.record_minutes.set_value(1)
+                window.record_button.clicked()
+                wait(lambda: window.recorder.status == "stopped", timeout=5)
+                assert requested_durations == [None, 60], requested_durations
+                wait(lambda: window.record_minutes.get_sensitive())
+                assert "انتهت المدة" in window.record_state.get_text(), window.record_state.get_text()
+                assert window.record_minutes.get_sensitive()
+                assert window.record_button.get_sensitive()
+                assert window.recorder.stop_reason == "duration_elapsed"
+                assert json.loads(window.recorder.path.read_text().splitlines()[-1])["reason"] == "duration_elapsed"
                 volume.assert_not_called()
                 select.assert_not_called()
             finally:

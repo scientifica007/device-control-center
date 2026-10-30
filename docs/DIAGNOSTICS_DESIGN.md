@@ -51,3 +51,12 @@ Existing «تصدير تقرير JSON» remains distinct: it exports the applica
 - Existing XTEST wheel and audio codec regression tests must remain green. The CI builds DEB and verifies package version 0.1.11; GNOME extension is unchanged.
 - Do not infer field acceptance from CI. Once the candidate's automated tests pass, manual Ubuntu 24.04 GNOME 46 Wayland validation on HP 630 should compare idle and active CPU/RAM/disk load, confirm A2DP/SBC/a2dp-sink unchanged, sound stable, full two-direction wheel scrolling, initial/current battery accuracy and GNOME top-bar battery indicator, and finally check the produced JSONL privacy and retention behavior.
 - No installer should be applied to the user's computer until explicit separate approval to do so.
+
+
+## v0.1.12 — Elapsed timer and optional finite duration
+
+The GTK footer adds a numeric minutes selector (0 = no duration, 1..1440 = 1 minute to 24 hours); it is locked while a session is active. The elapsed counter updates once per second from a monotonic start instant and freezes at the stop instant, showing MM:SS or HH:MM:SS. For a finite duration, it shows elapsed/limit.
+
+The independent JSONL writer enforces the deadline using time.monotonic() even without new snapshots or GTK ticks. Its queue wait is bounded by the remaining duration. A manual Stop remains effective before the deadline. Session start records duration_seconds or null; successful session end records reason = manual, duration_elapsed, or window_closed. This is an additive schema v1 change and preserves previous JSONL fields. It does not schedule future session starts, systemd units or recordings while the GTK process is closed.
+
+Timing is local monotonic elapsed time; the timestamp in an observation remains the time the app sampled it, not the headset measurement time. Timer display granularity is 1 second, and writer scheduling and flush have ordinary OS latency. A failed I/O operation or forced termination cannot guarantee session_end. GTK scrollbar and audio device settings remain untouched.

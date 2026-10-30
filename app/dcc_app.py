@@ -243,6 +243,22 @@ class DccWindow(Gtk.Window):
         self.export_button.set_margin_top(6)
         self.export_button.set_tooltip_text("حفظ محلي فقط؛ قد يتضمن التقرير عناوين الأجهزة وأسماء الشبكات")
         footer.pack_start(self.export_button, False, False, 0)
+        duration_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        duration_row.set_margin_start(12)
+        duration_row.set_margin_end(12)
+        duration_row.pack_start(label("مدة التسجيل بالدقائق (0 = دون حد)", "dcc-muted",
+                                      wrap=False), False, False, 0)
+        self.record_minutes = Gtk.SpinButton.new_with_range(0, 1440, 1)
+        self.record_minutes.set_numeric(True)
+        self.record_minutes.set_width_chars(4)
+        self.record_minutes.set_value(0)
+        self.record_minutes.set_tooltip_text(
+            "اضبط عدد الدقائق قبل بدء التسجيل؛ الصفر يعني التسجيل حتى الإيقاف اليدوي")
+        # A mouse wheel over this control must not accidentally modify the duration.
+        self.record_minutes.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
+        self.record_minutes.connect("scroll-event", self._scroll_over_volume)
+        duration_row.pack_start(self.record_minutes, False, False, 0)
+        footer.pack_start(duration_row, False, False, 0)
         diagnostics = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         diagnostics.set_margin_start(12)
         diagnostics.set_margin_end(12)
@@ -267,7 +283,10 @@ class DccWindow(Gtk.Window):
         if recorder is not None and recorder.status in ("starting", "recording"):
             recorder.stop()
         elif recorder is None or recorder.status in ("stopped", "error"):
-            self.recorder = SessionRecorder()
+            # Read the spinner's text too, so a typed value is committed before use.
+            self.record_minutes.update()
+            minutes = self.record_minutes.get_value_as_int()
+            self.recorder = SessionRecorder(duration_seconds=minutes * 60 if minutes else None)
             self.recorder.start()
             # First observation comes from the next normal refresh, not cached UI state.
         self._update_record_ui()
@@ -286,8 +305,23 @@ class DccWindow(Gtk.Window):
             "error": ("بدء التسجيل", "توقف التسجيل: " + ((recorder.error if recorder is not None else None) or "خطأ غير معروف")),
         }
         button_text, status_text = labels.get(current, labels["inactive"])
+        if recorder is not None and recorder.started_monotonic is not None:
+            elapsed = self._format_duration(recorder.elapsed_seconds)
+            if recorder.duration_seconds is not None:
+                progress = elapsed + " / " + self._format_duration(recorder.duration_seconds)
+            else:
+                progress = elapsed
+            if current in ("starting", "recording"):
+                status_text = "جارٍ التسجيل · " + progress
+            elif current == "stopping":
+                status_text = "جارٍ إنهاء السجل · " + progress
+            elif current == "stopped":
+                prefix = ("انتهت المدة وحُفظ السجل" if recorder.stop_reason == "duration_elapsed"
+                          else "اكتمل حفظ السجل")
+                status_text = prefix + " · " + progress
         self.record_button.set_label(button_text)
         self.record_button.set_sensitive(current != "stopping")
+        self.record_minutes.set_sensitive(current in ("inactive", "stopped", "error"))
         self.record_state.set_text(status_text)
         if recorder and recorder.path:
             self.record_state.set_tooltip_text("الملف المحلي: " + str(recorder.path))
@@ -295,10 +329,18 @@ class DccWindow(Gtk.Window):
             self.record_state.set_tooltip_text(None)
         return True
 
+    @staticmethod
+    def _format_duration(seconds):
+        total = max(0, int(seconds))
+        hours, remainder = divmod(total, 3600)
+        minutes, secs = divmod(remainder, 60)
+        return (f"{hours:02d}:{minutes:02d}:{secs:02d}" if hours
+                else f"{minutes:02d}:{secs:02d}")
+
     def _destroyed(self, *_):
         self._closed = True
         if self.recorder:
-            self.recorder.stop()  # Non-daemon worker completes the bounded flush after GTK quits.
+            self.recorder.stop(reason="window_closed")  # Non-daemon worker completes the bounded flush after GTK quits.
         GLib.source_remove(self._record_ui_timer)
         Gtk.StyleContext.remove_provider_for_screen(Gdk.Screen.get_default(), self._css_provider)
         GLib.source_remove(self._refresh_timer)

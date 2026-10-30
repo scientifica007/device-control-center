@@ -184,10 +184,21 @@ def _changes(before, after):
 
 class SessionRecorder:
     """Start only on explicit user action. No GTK/BlueZ operations or autostart."""
-    def __init__(self, directory=None, checkpoint_seconds=CHECKPOINT_SECONDS, max_bytes=MAX_SESSION_BYTES):
+    def __init__(self, directory=None, checkpoint_seconds=CHECKPOINT_SECONDS, max_bytes=MAX_SESSION_BYTES,
+                 duration_seconds=None):
+        if duration_seconds is not None and (
+            type(duration_seconds) not in (int, float) or
+            not 0 < duration_seconds <= 24 * 3600
+        ):
+            raise ValueError("مدة التسجيل يجب أن تكون بين ثانية و24 ساعة")
         self.directory = Path(directory) if directory is not None else state_directory()
         self.checkpoint_seconds = checkpoint_seconds
         self.max_bytes = max_bytes
+        self.duration_seconds = duration_seconds
+        self.started_monotonic = None
+        self.started_at = None
+        self.stopped_monotonic = None
+        self.stop_reason = None
         self.session_id = uuid.uuid4().hex
         self.path = None
         self.status = "inactive"
@@ -200,17 +211,39 @@ class SessionRecorder:
     def start(self):
         if self.status != "inactive":
             raise RuntimeError("جلسة التسجيل بدأت بالفعل")
+        self.started_monotonic = time.monotonic()
+        self.started_at = utc_now()
         self.status = "starting"
         self._thread = threading.Thread(target=self._worker, name="dcc-jsonl-writer", daemon=False)
         self._thread.start()
 
-    def record(self, snapshot):
+    @property
+    def elapsed_seconds(self):
+        """Monotonic elapsed time, frozen on stop and capped at the selected limit."""
+        if self.started_monotonic is None:
+            return 0.0
+        end = self.stopped_monotonic if self.stopped_monotonic is not None else time.monotonic()
+        seconds = max(0.0, end - self.started_monotonic)
+        return min(seconds, self.duration_seconds) if self.duration_seconds is not None else seconds
+
+    def _duration_expired(self):
+        return (self.duration_seconds is not None and self.started_monotonic is not None
+                and time.monotonic() >= self.started_monotonic + self.duration_seconds)
+
+    def _accepting(self):
         if self.status not in ("starting", "recording"):
-            return
-        self._enqueue(("snapshot", snapshot, utc_now()))
+            return False
+        if self._duration_expired():
+            self.stop(reason="duration_elapsed")
+            return False
+        return True
+
+    def record(self, snapshot):
+        if self._accepting():
+            self._enqueue(("snapshot", snapshot, utc_now()))
 
     def read_error(self, category="snapshot"):
-        if self.status in ("starting", "recording"):
+        if self._accepting():
             self._enqueue(("error", category if category in ("snapshot", "bluetooth", "audio", "wifi") else "snapshot", utc_now()))
 
     def _enqueue(self, item):
@@ -221,8 +254,12 @@ class SessionRecorder:
             self._abort.set()
             self.status = "error"
 
-    def stop(self):
+    def stop(self, reason="manual"):
         if self.status in ("starting", "recording"):
+            if reason not in ("manual", "duration_elapsed", "window_closed"):
+                raise ValueError("سبب إيقاف غير معروف")
+            self.stop_reason = reason
+            self.stopped_monotonic = time.monotonic()
             self.status = "stopping"
             self._stop.set()
 
@@ -251,18 +288,27 @@ class SessionRecorder:
                     handle.write(line)
                     size += encoded
 
-                write({"type": "session_start", "observed_at": utc_now(),
-                       "checkpoint_seconds": self.checkpoint_seconds})
+                write({"type": "session_start", "observed_at": self.started_at,
+                       "checkpoint_seconds": self.checkpoint_seconds,
+                       "duration_seconds": self.duration_seconds})
                 self.status = "stopping" if self._stop.is_set() else "recording"
                 projector = _Projector()
                 previous = None
                 last_checkpoint = time.monotonic()
                 while not self._abort.is_set():
+                    # Enforce the deadline in the writer even with zero new snapshots,
+                    # and without relying on the GTK main loop or a device poll.
+                    if self._duration_expired():
+                        self.stop(reason="duration_elapsed")
+                    if self._stop.is_set() and self._events.empty():
+                        break
+                    timeout = 1.0
+                    if self.duration_seconds is not None and not self._stop.is_set():
+                        remaining = self.started_monotonic + self.duration_seconds - time.monotonic()
+                        timeout = min(timeout, max(0.001, remaining))
                     try:
-                        item_type, payload, sampled_at = self._events.get(timeout=1)
+                        item_type, payload, sampled_at = self._events.get(timeout=timeout)
                     except queue.Empty:
-                        if self._stop.is_set():
-                            break
                         handle.flush()
                         continue
                     if item_type == "error":
@@ -282,7 +328,8 @@ class SessionRecorder:
                     if self._stop.is_set() and self._events.empty():
                         break
                 if not self._abort.is_set():
-                    write({"type": "session_end", "observed_at": utc_now()})
+                    write({"type": "session_end", "observed_at": utc_now(),
+                           "reason": self.stop_reason or "manual"})
                 handle.flush()
                 os.fsync(handle.fileno())
             self.status = "error" if self._abort.is_set() else "stopped"
