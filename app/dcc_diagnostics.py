@@ -207,11 +207,11 @@ class SessionRecorder:
     def record(self, snapshot):
         if self.status not in ("starting", "recording"):
             return
-        self._enqueue(("snapshot", snapshot))
+        self._enqueue(("snapshot", snapshot, utc_now()))
 
     def read_error(self, category="snapshot"):
         if self.status in ("starting", "recording"):
-            self._enqueue(("error", category if category in ("snapshot", "bluetooth", "audio", "wifi") else "snapshot"))
+            self._enqueue(("error", category if category in ("snapshot", "bluetooth", "audio", "wifi") else "snapshot", utc_now()))
 
     def _enqueue(self, item):
         try:
@@ -259,16 +259,16 @@ class SessionRecorder:
                 last_checkpoint = time.monotonic()
                 while not self._abort.is_set():
                     try:
-                        item_type, payload = self._events.get(timeout=1)
+                        item_type, payload, sampled_at = self._events.get(timeout=1)
                     except queue.Empty:
                         if self._stop.is_set():
                             break
                         handle.flush()
                         continue
                     if item_type == "error":
-                        write({"type": "read_error", "observed_at": utc_now(), "category": payload})
+                        write({"type": "read_error", "observed_at": sampled_at, "category": payload})
                     else:
-                        now, monotonic = utc_now(), time.monotonic()
+                        now, monotonic = sampled_at, time.monotonic()
                         state = projector.snapshot(payload, previous)
                         if previous is not None:
                             for category, device, field, old, new in _changes(previous, state):
