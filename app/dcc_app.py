@@ -21,6 +21,7 @@ Gdk.set_program_class(APP_ID)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dcc_core as core  # noqa: E402
+from dcc_diagnostics import SessionRecorder  # noqa: E402
 
 
 CSS = b"""
@@ -162,6 +163,7 @@ class DccWindow(Gtk.Window):
         self._updating = False
         self._volume_timer = {"out": None, "in": None}
         self._action_running = False
+        self.recorder = None  # No disk activity or recorder before explicit opt-in.
 
         Gtk.Widget.set_default_direction(Gtk.TextDirection.RTL)
         provider = Gtk.CssProvider()
@@ -241,6 +243,16 @@ class DccWindow(Gtk.Window):
         self.export_button.set_margin_top(6)
         self.export_button.set_tooltip_text("حفظ محلي فقط؛ قد يتضمن التقرير عناوين الأجهزة وأسماء الشبكات")
         footer.pack_start(self.export_button, False, False, 0)
+        diagnostics = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        diagnostics.set_margin_start(12)
+        diagnostics.set_margin_end(12)
+        self.record_button = button("بدء التسجيل", lambda _: self.toggle_recording())
+        self.record_button.set_tooltip_text("تسجيل محلي اختياري للتغيرات ونقاط التحقق؛ دون أسماء الأجهزة أو عناوينها")
+        diagnostics.pack_start(self.record_button, False, False, 0)
+        self.record_state = label("التسجيل متوقف", "dcc-muted", wrap=False)
+        self.record_state.set_ellipsize(Pango.EllipsizeMode.END)
+        diagnostics.pack_start(self.record_state, True, True, 0)
+        footer.pack_start(diagnostics, False, False, 0)
         self.status = label("جارٍ بدء الفحص…", "dcc-status", wrap=False)
         self.status.set_ellipsize(Pango.EllipsizeMode.END)
         footer.pack_start(self.status, False, False, 0)
@@ -248,9 +260,47 @@ class DccWindow(Gtk.Window):
         outer.show_all()
         GLib.idle_add(self.refresh)
         self._refresh_timer = GLib.timeout_add_seconds(12, self._auto_refresh)
+        self._record_ui_timer = GLib.timeout_add_seconds(1, self._update_record_ui)
+
+    def toggle_recording(self):
+        recorder = self.recorder
+        if recorder is not None and recorder.status in ("starting", "recording"):
+            recorder.stop()
+        elif recorder is None or recorder.status in ("stopped", "error"):
+            self.recorder = SessionRecorder()
+            self.recorder.start()
+            if self.data is not None:
+                self.recorder.record(self.data)
+        self._update_record_ui()
+
+    def _update_record_ui(self):
+        if self._closed:
+            return False
+        recorder = self.recorder
+        current = recorder.status if recorder is not None else "inactive"
+        labels = {
+            "inactive": ("بدء التسجيل", "التسجيل متوقف"),
+            "starting": ("إيقاف التسجيل", "جارٍ بدء التسجيل محليًا…"),
+            "recording": ("إيقاف التسجيل", "التسجيل جارٍ محليًا"),
+            "stopping": ("إيقاف التسجيل", "جارٍ إنهاء السجل…"),
+            "stopped": ("بدء التسجيل", "اكتمل حفظ السجل"),
+            "error": ("بدء التسجيل", "توقف التسجيل: " + (recorder.error or "خطأ غير معروف")),
+        }
+        button_text, status_text = labels.get(current, labels["inactive"])
+        self.record_button.set_label(button_text)
+        self.record_button.set_sensitive(current != "stopping")
+        self.record_state.set_text(status_text)
+        if recorder and recorder.path:
+            self.record_state.set_tooltip_text("الملف المحلي: " + str(recorder.path))
+        else:
+            self.record_state.set_tooltip_text(None)
+        return True
 
     def _destroyed(self, *_):
         self._closed = True
+        if self.recorder:
+            self.recorder.stop()  # Non-daemon worker completes the bounded flush after GTK quits.
+        GLib.source_remove(self._record_ui_timer)
         Gtk.StyleContext.remove_provider_for_screen(Gdk.Screen.get_default(), self._css_provider)
         GLib.source_remove(self._refresh_timer)
         for kind, timer in self._volume_timer.items():
@@ -343,6 +393,8 @@ class DccWindow(Gtk.Window):
         if self._closed:
             return False
         if error:
+            if self.recorder:
+                self.recorder.read_error("snapshot")
             if self.data:
                 previous = self.data["bluetooth"]
                 self.data["bluetooth"] = core.retain_battery_history(
@@ -365,6 +417,8 @@ class DccWindow(Gtk.Window):
             result["bluetooth"] = core.retain_battery_history(
                 result["bluetooth"], self.data["bluetooth"] if self.data else [])
             self.data = result
+            if self.recorder:
+                self.recorder.record(result)
             self._render_devices(result)
             self._render_audio(result["audio"])
             self._render_wifi(result["wifi"])
