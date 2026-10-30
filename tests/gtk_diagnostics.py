@@ -57,7 +57,7 @@ def main():
                 assert any(row.get("field") == "battery" and
                            row["current"]["value"] == 90 for row in rows)
                 assert requested_durations == [None]
-                assert window.record_minutes.get_sensitive()
+                wait(lambda: window.record_minutes.get_sensitive())
                 assert window._format_duration(65) == "01:05"
                 assert window._format_duration(3661) == "01:01:01"
                 # A 1-minute choice must reach the backend as 60 seconds.
@@ -65,7 +65,7 @@ def main():
                 window.record_button.clicked()
                 wait(lambda: window.recorder.status == "stopped", timeout=5)
                 assert requested_durations == [None, 60], requested_durations
-                window._update_record_ui()
+                wait(lambda: window.record_minutes.get_sensitive())
                 assert "انتهت المدة" in window.record_state.get_text(), window.record_state.get_text()
                 assert window.record_minutes.get_sensitive()
                 assert window.record_button.get_sensitive()
