@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dcc_core as core  # noqa: E402
 from dcc_diagnostics import SessionRecorder, prepare_reports_directory  # noqa: E402
 import dcc_indicator as indicator_control  # noqa: E402
+import dcc_analysis as diagnostic_analysis  # noqa: E402
 
 
 CSS = b"""
@@ -173,6 +174,8 @@ class DccWindow(Gtk.Window):
         self.recorder = None  # No disk activity or recorder before explicit opt-in.
         self._indicator_busy = False
         self._indicator_state = None
+        self._analysis_busy = False
+        self._analysis_html = None
 
         Gtk.Widget.set_default_direction(Gtk.TextDirection.RTL)
         provider = Gtk.CssProvider()
@@ -266,6 +269,28 @@ class DccWindow(Gtk.Window):
         self.indicator_refresh = button("تحديث حالة المؤشر", lambda _: self.refresh_panel_indicator())
         indicator_actions.pack_start(self.indicator_toggle, False, False, 0)
         indicator_actions.pack_start(self.indicator_refresh, False, False, 0)
+
+        body.pack_start(label("تحليل التسجيلات التشخيصية", "dcc-subheading"),
+                        False, False, 0)
+        analysis_frame = Gtk.Frame()
+        analysis_frame.get_style_context().add_class("dcc-card")
+        body.pack_start(analysis_frame, False, False, 0)
+        analysis_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        analysis_box.set_border_width(12)
+        analysis_frame.add(analysis_box)
+        analysis_box.pack_start(label(
+            "اختَر سجل JSONL موجودًا لتحليل البطارية والصوت وWi-Fi محليًا. "
+            "يُنشئ التقرير ملفَّي HTML وJSON دون الاتصال بالأجهزة أو الإنترنت.",
+            "dcc-muted"), False, False, 0)
+        analysis_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        analysis_box.pack_start(analysis_actions, False, False, 0)
+        self.analysis_button = button("تحليل ملف JSONL", lambda _: self.choose_analysis())
+        self.analysis_open_button = button("فتح التقرير التحليلي",
+                                          lambda _: self.open_analysis_report(), sensitive=False)
+        analysis_actions.pack_start(self.analysis_button, False, False, 0)
+        analysis_actions.pack_start(self.analysis_open_button, False, False, 0)
+        self.analysis_info = label("لم يُحلّل أي ملف بعد.", "dcc-muted")
+        analysis_box.pack_start(self.analysis_info, False, False, 0)
 
         # Persistent actions never depend on the height of the scroll content.
         footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -382,6 +407,73 @@ class DccWindow(Gtk.Window):
                 description = "مؤشر Device Control Center معطّل (Bluetooth يعمل بصورة مستقلة)."
             self.indicator_status.set_text(description)
         return False
+
+    def choose_analysis(self):
+        if self._closed or self._analysis_busy:
+            return
+        try:
+            folder = prepare_reports_directory()
+        except OSError as exc:
+            self._dialog("تعذّر إعداد مجلد التقارير", str(exc))
+            return
+        dialog = Gtk.FileChooserDialog(title="اختيار سجل التشخيص JSONL",
+                                        transient_for=self, action=Gtk.FileChooserAction.OPEN)
+        dialog.add_buttons("إلغاء", Gtk.ResponseType.CANCEL,
+                           "تحليل", Gtk.ResponseType.OK)
+        file_filter = Gtk.FileFilter()
+        file_filter.set_name("سجلات JSONL")
+        file_filter.add_pattern("*.jsonl")
+        dialog.add_filter(file_filter)
+        dialog.set_current_folder(str(folder))
+        try:
+            if dialog.run() == Gtk.ResponseType.OK:
+                path = dialog.get_filename()
+                if path:
+                    self.analyse_selected_file(Path(path))
+        finally:
+            dialog.destroy()
+
+    def analyse_selected_file(self, path):
+        if self._closed or self._analysis_busy:
+            return
+        self._analysis_busy = True
+        self._analysis_html = None
+        self.analysis_button.set_sensitive(False)
+        self.analysis_open_button.set_sensitive(False)
+        self.analysis_info.set_text("جارٍ تحليل السجل محليًا…")
+
+        def worker():
+            try:
+                analysis = diagnostic_analysis.analyse_file(path)
+                json_path, html_path = diagnostic_analysis.save_reports(analysis)
+                summary = analysis["counts"]
+                description = (f"اكتمل التحليل: {summary['records']} سجلًا، "
+                               f"{summary['types'].get('state_change', 0)} حدث تغير، "
+                               f"{summary['types'].get('read_error', 0)} خطأ قراءة. "
+                               "حُفظ HTML وJSON في مجلد التقارير.")
+                GLib.idle_add(self._analysis_finished, description, html_path, None)
+            except (diagnostic_analysis.AnalysisError, OSError, UnicodeError,
+                    ValueError, TypeError) as exc:
+                GLib.idle_add(self._analysis_finished, None, None, str(exc))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _analysis_finished(self, description, html_path, error):
+        if self._closed:
+            return False
+        self._analysis_busy = False
+        self.analysis_button.set_sensitive(True)
+        self._analysis_html = html_path
+        self.analysis_open_button.set_sensitive(html_path is not None)
+        self.analysis_info.set_text("تعذّر التحليل: " + error if error else description)
+        return False
+
+    def open_analysis_report(self):
+        if self._closed or self._analysis_html is None:
+            return
+        try:
+            Gio.AppInfo.launch_default_for_uri(self._analysis_html.as_uri(), None)
+        except (GLib.Error, OSError) as exc:
+            self._dialog("تعذر فتح التقرير التحليلي", str(exc))
 
     def toggle_recording(self):
         recorder = self.recorder
